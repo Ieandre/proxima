@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import sodium from 'libsodium-wrappers';
-import { DISCORD_INVITE } from '../../lib/links';
+import { DISCORD_INVITE, SOURCE_URL } from '../../lib/links';
 import { isOnionOrigin } from '../../lib/onion';
 import { useStore } from '../../store/useStore';
 import { TopBar } from '../layout/TopBar';
-import { DiscordGlyph, Icon, Logo } from '../ui';
+import { DiscordGlyph, GitHubGlyph, Icon, Logo } from '../ui';
 import { EphemeralSchema, ProximitySchema, KeySchema, CipherFlowSchema, RoomsSchema } from './AboutSchemas';
 
 const B64 = () => sodium.base64_variants.URLSAFE_NO_PADDING;
@@ -299,6 +299,48 @@ export function About() {
           <p className="mt-4 text-[13px] leading-relaxed text-faint">
             L'adresse IP n'est jamais journalisée en clair&nbsp;: lorsqu'elle est nécessaire (limiter le spam), seule une
             empreinte salée, à durée de vie de quelques minutes et au sel rotatif, est conservée.
+          </p>
+        </Section>
+
+        {/* Code source — placé JUSTE APRÈS le tableau de ce que le serveur voit et
+            ne voit pas. C'est le moment exact où un lecteur attentif se demande
+            « qui me dit que c'est vrai ? » : la réponse doit arriver là, pas trois
+            écrans plus bas. Toute la page n'est qu'une suite d'affirmations tant
+            qu'on ne peut pas les recouper. */}
+        <Section eyebrow="Vérifiabilité" title="Ne nous croyez pas sur parole">
+          <p>
+            Tout ce que vous venez de lire est une <strong className="text-ink">affirmation</strong>. N'importe quel
+            service peut écrire qu'il ne lit pas vos messages&nbsp;; rien, dans une jolie page, ne le prouve. Le code de
+            Proxima est donc <strong className="text-ink">public et lisible par n'importe qui</strong> — y compris par
+            des gens qui n'ont aucune raison de nous ménager.
+          </p>
+          <p className="mt-3">Les promesses de cette page se vérifient là&nbsp;:</p>
+          <ul className="mt-4 flex flex-col gap-2.5">
+            <Brick term="lib/crypto.ts">
+              Le chiffrement, côté navigateur&nbsp;: la clé privée y est fabriquée et n'en sort jamais.
+            </Brick>
+            <Brick term="server/security.js">
+              Le traitement de l'adresse IP&nbsp;: le hachage salé, la rotation du sel, et l'absence de journalisation.
+            </Brick>
+            <Brick term="domain/sessions.js">
+              La durée de vie d'une identité&nbsp;: les délais d'expiration, et ce qui est détruit à la déconnexion.
+            </Brick>
+            <Brick term="handlers/messages.js">
+              Le relais des salons chiffrés&nbsp;: on y voit que rien n'analyse le contenu qui passe.
+            </Brick>
+          </ul>
+          <Example title="Pourquoi la licence compte">
+            Proxima est publié sous <strong>AGPL-3.0</strong>. Cette licence oblige quiconque héberge une version
+            modifiée du service à en publier le code. Personne ne peut donc faire tourner un « Proxima » auquel on
+            aurait discrètement ajouté un enregistrement des messages ou des adresses IP, sans que la modification soit
+            visible de tous.
+          </Example>
+          <p className="mt-5">
+            <a className="source-link" href={SOURCE_URL} target="_blank" rel="noopener noreferrer">
+              <GitHubGlyph size={15} />
+              Lire le code source
+              <span className="source-link__licence">AGPL-3.0</span>
+            </a>
           </p>
         </Section>
 
