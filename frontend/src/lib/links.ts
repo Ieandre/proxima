@@ -21,6 +21,19 @@
 export const DISCORD_INVITE = import.meta.env.VITE_DISCORD_INVITE ?? '';
 
 /**
+ * Code source du service.
+ *
+ * Contrairement à l'invitation Discord, ce lien a une valeur par défaut : sous
+ * AGPL-3.0, quiconque expose Proxima sur un réseau doit en offrir les sources aux
+ * utilisateurs (art. 13). Un lien absent serait donc un manquement, pas une
+ * simple omission d'affichage.
+ *
+ * Une instance dérivée DOIT pointer vers SON dépôt via `VITE_SOURCE_URL` : c'est
+ * son code qui tourne, pas celui-ci.
+ */
+export const SOURCE_URL = import.meta.env.VITE_SOURCE_URL ?? 'https://github.com/Ieandre/proxima';
+
+/**
  * Lien d'invitation à une conversation privée.
  *
  * Un paramètre de requête sur la racine, jamais un chemin : une seule URL est

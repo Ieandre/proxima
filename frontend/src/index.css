@@ -476,6 +476,70 @@ h1 {
   transform: translateY(1px);
 }
 
+/* Code source — pendant NEUTRE de `.discord-link`, en pied de page.
+   Même géométrie : ce sont deux portes sortantes de même rang, et les distinguer
+   par la taille laisserait croire à une hiérarchie qui n'existe pas. Tout le reste
+   diverge. Discord se reconnaît à sa couleur avant de se lire ; le code source,
+   lui, reste en encre — la marque GitHub est achromatique, et surtout ce lien est
+   la PREUVE de ce que le site affirme (« nous ne pouvons pas lire vos messages »).
+   Une preuve n'a pas besoin d'être colorée pour peser, et lui donner le bleu du
+   produit l'aurait rangée parmi les liens de navigation. */
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-line-strong);
+  color: var(--color-ink);
+  background: var(--color-card);
+  transition: border-color 0.16s, background 0.16s, color 0.16s, box-shadow 0.16s,
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* L'identifiant SPDX en chasse fixe : c'est une donnée vérifiable, pas un slogan
+   — même registre que l'empreinte de session. Il dit ce que le lien engage
+   (un fork hébergé doit publier ses sources) sans ajouter une phrase au pied. */
+.source-link__licence {
+  font-family: var(--font-mono);
+  /* 11 px et `muted`, non `faint` : à cette taille le gris de pied de page tombe
+     à 2,9:1 sur la pilule. `muted` tient 5,9:1 — c'est une mention de licence,
+     elle doit se lire, pas se deviner. */
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--color-muted);
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--color-line);
+  transition: color 0.16s, border-color 0.16s;
+}
+
+/* Au survol, le CONTOUR s'allume — pas le libellé.
+   Teinter le texte en bleu le ferait tomber à 4,35:1 sur `blue-tint` en clair, sous
+   le seuil AA. `blue-deep` corrigerait le clair (6,29:1) mais s'effondrerait à
+   2,13:1 en sombre, où « deep » veut dire plus foncé sur une teinte déjà foncée :
+   aucun jeton unique ne sert les deux thèmes ici. L'encre, elle, tient 18,5:1 en
+   clair et 13,3:1 en sombre sur cette même teinte. Le contour et le glyphe portent
+   donc seuls le contact — ce qui distingue au passage cette pilule de Discord, qui
+   se colore entièrement. */
+.source-link:hover {
+  border-color: var(--color-blue-vivid);
+  background: var(--color-blue-tint);
+  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--color-blue-vivid) 70%, transparent);
+  transform: translateY(-1px);
+}
+.source-link:hover svg {
+  color: var(--color-blue);
+}
+.source-link:hover .source-link__licence {
+  border-left-color: color-mix(in srgb, var(--color-blue) 30%, transparent);
+}
+.source-link:active {
+  transform: translateY(1px);
+}
+
 /* Accès par le service onion Tor, en pied de page.
    L'inverse exact du registre de `.discord-link` : celle-là est une porte d'entrée
    qu'on veut voir, celle-ci une information de service pour qui la cherche. Elle
@@ -1683,6 +1747,14 @@ button.quote:hover {
 @media (prefers-reduced-motion: reduce) {
   .invite-pair__wire {
     animation: none;
+  }
+  /* Le décollement au survol des portes du pied : la couleur suffit à signaler
+     le contact, le mouvement n'apporte rien à qui n'en veut pas. */
+  .discord-link:hover,
+  .source-link:hover,
+  .discord-link:active,
+  .source-link:active {
+    transform: none;
   }
 }
 
