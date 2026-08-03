@@ -1,0 +1,19 @@
+# Proxima — chat anonyme éphémère. Le service tient sur une page unique :
+# seule « / » porte du contenu indexable.
+#
+# Note : les « Allow: » qui listaient ici les images étaient sans effet — une
+# directive Allow ne sert qu'à rouvrir une exception à l'intérieur d'un Disallow,
+# et rien n'était interdit en amont. Supprimées pour ne pas laisser croire que
+# le reste du site serait bloqué.
+
+User-agent: *
+Disallow: /operator
+Disallow: /api/
+Disallow: /socket.io/
+
+# Les liens d'invitation (/?r=...&k=...) donnent accès à des salons privés. Ils
+# ne sont volontairement pas listés ici : le serveur leur pose un en-tête
+# « X-Robots-Tag: noindex » (server/security.js), qui reste efficace même quand
+# l'URL est découverte par un autre chemin — ce qu'un Disallow ne garantit pas.
+
+Sitemap: https://proximachat.eu/sitemap.xml

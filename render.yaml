@@ -1,0 +1,25 @@
+# Blueprint Render — déploiement « tout-en-un » : le serveur Node sert l'API,
+# le WebSocket Socket.IO ET le build React (frontend/dist). Aucun changement de code.
+# Spec : https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: chat-anonyme
+    runtime: node
+    region: frankfurt        # proche du Luxembourg ; ajustez si besoin
+    plan: free               # voir la note sur la mise en veille du palier gratuit
+    # Build : deps backend + deps frontend (avec devDeps pour tsc/vite) puis build du SPA.
+    buildCommand: npm install && npm install --prefix frontend --include=dev && npm run build --prefix frontend
+    # Démarrage : process long-running. PAS de --env-file (Render injecte les variables d'env).
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Renseignez ces secrets dans le dashboard Render (jamais dans le dépôt) :
+      - key: REDIS_URL
+        sync: false          # URL du Redis managé — ex. rediss://… (Upstash) ou redis://… (Render Key Value)
+      - key: OPERATOR_SECRET
+        sync: false          # jeton de la console /operator
+      - key: CONTACT_EMAIL
+        sync: false          # optionnel (page « À propos » / DSA)

@@ -1,0 +1,2002 @@
+@import 'tailwindcss';
+
+/* Typographie : pile système (SF Pro sur Apple, Segoe UI Variable sur Windows, Roboto sur
+   Android). Aucun CDN tiers, aucun octet à télécharger — compatible CSP stricte. Le mono
+   reste auto-hébergé : il ne sert plus qu'aux données à aligner (empreinte de session). */
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+@theme {
+  --font-display: system-ui, -apple-system, 'Segoe UI Variable Display', 'Segoe UI', Roboto, sans-serif;
+  --font-sans: system-ui, -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  --color-paper: #fbfcfd;
+  --color-paper-2: #f1f4f8;
+  --color-card: #ffffff;
+  --color-ink: #0f1419;
+  --color-muted: #566573;
+  --color-faint: #8b98a5;
+  --color-line: #e8edf2;
+  --color-line-strong: #d3dce4;
+
+  /* Accent unique. Deux valeurs, pour une raison d'accessibilité :
+     - `blue` porte le texte et les aplats textuels — 4,9:1 sur blanc (AA) ;
+     - `blue-vivid` est réservé au décoratif (halo, sceau, focus, pastilles), où
+       le seuil n'est que de 3:1. C'est lui qui donne l'éclat, sans coût de lisibilité. */
+  --color-blue: #0f6fdb;
+  --color-blue-vivid: #1185fe;
+  --color-blue-deep: #0b57ad; /* survol / pression */
+  --color-blue-tint: #eaf3ff;
+  /* Bleu d'APLAT : celui qui porte du blanc dessus (bouton principal, bulle « moi »,
+     mention de soi, sélection). Identique à `blue` en clair — un seul bleu suffisait
+     tant que le fond était blanc. En sombre les deux rôles divergent : aucun bleu ne
+     peut à la fois se lire EN texte sur un fond nuit (il doit être clair) et PORTER
+     du blanc (il doit rester dense). D'où la scission, invisible en clair. */
+  --color-blue-fill: #0f6fdb;
+  /* Teinte secondaire strictement décorative (halos, nappes) : elle réchauffe
+     l'ambiance sans devenir un second accent d'interface. Jamais sur du texte. */
+  --color-accent: #7c3aed;
+  --color-verified: #1d7a55; /* vert d'état : porte du texte, donc reste dense */
+  --color-verified-vivid: #17c964; /* pastille de présence : décoratif, donc éclatant */
+  --color-verified-tint: #e8f4ee;
+  --color-danger: #d32636;
+  --color-danger-tint: #fdecee;
+  /* Exception assumée à l'accent unique : la couleur de marque de Discord. Un
+     lien communautaire se reconnaît à sa couleur avant de se lire — le peindre
+     en bleu Proxima le ferait passer pour un lien interne de plus. Même
+     découpage texte/décoratif que le bleu ci-dessus :
+     - `discord` porte le libellé — 6,4:1 sur blanc, 5,7:1 sur la teinte (AA) ;
+     - `discord-vivid` est le blurple officiel, réservé au glyphe (décoratif,
+       seuil 3:1) : c'est lui qu'on reconnaît, mais il tombe à 4,1:1 et ne peut
+       donc pas porter de texte. */
+  --color-discord: #4752c4;
+  --color-discord-vivid: #5865f2;
+  --color-discord-tint: #eef0fe;
+
+  --radius-card: 22px;
+  --radius-field: 14px;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Jetons hors palette                                                     */
+/* ----------------------------------------------------------------------- */
+/* Déclarés hors de `@theme` : ce ne sont pas des couleurs d'utilitaires
+   Tailwind, seulement des valeurs que le thème sombre doit pouvoir rejouer. */
+:root {
+  color-scheme: light;
+
+  /* Ombres. En clair elles portent l'élévation ; en sombre une ombre ne se voit
+     plus (on n'assombrit pas ce qui est déjà noir) — c'est le fond plus clair et
+     le filet qui prennent le relais, et l'ombre ne sert plus qu'à décoller. */
+  --shadow-panel: 0 1px 2px rgba(15, 20, 25, 0.04), 0 14px 34px -18px rgba(17, 90, 190, 0.2);
+  --shadow-pop: 0 18px 40px -18px rgba(15, 20, 25, 0.35);
+
+  /* Nappes d'ambiance de l'accueil. */
+  --halo-blue: color-mix(in srgb, var(--color-blue-vivid) 17%, transparent);
+  --halo-accent: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  --grid-dot: color-mix(in srgb, var(--color-blue) 6%, transparent);
+
+  /* Réseau vivant de l'accueil — canvas 2D. Triplets RVB (et non couleurs
+     complètes) : le canvas compose ses propres alphas à la volée, il lui faut
+     les composantes. Lus une fois par thème (Onboarding.tsx), jamais par trame. */
+  --net-link: 28 79 143;
+  --net-halo: 17 133 254;
+  --net-node: 28 79 143;
+  --net-node-alt: 29 122 85;
+  --net-ring: 17 133 254;
+  --net-ring-alt: 23 201 100;
+
+  /* Participants figurés des fiches de salon (« Comment ça marche »). */
+  --figure-1: #1c4f8f;
+  --figure-2: #1d7a55;
+  --figure-3: #5a4e8c;
+  --figure-4: #8a5a3c;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Thème sombre — « la carte, la nuit »                                    */
+/* ----------------------------------------------------------------------- */
+/* Le thème clair est du papier. Son pendant nocturne n'en est pas le négatif
+   (du papier noir n'existe pas) : c'est la même carte après la tombée du jour.
+   Trois conséquences, qui expliquent les valeurs ci-dessous.
+   1. Les surfaces restent BLEUES, jamais grises. Le clair refuse déjà l'ombre
+      grise (« elle salit le blanc ») ; la nuit obéit à la même discipline, et
+      l'accent bleu appartient alors à son entourage au lieu d'y flotter.
+   2. L'élévation se lit en LUMIÈRE, pas en ombre : l'échelle s'inverse et ce
+      qui est au-dessus s'éclaircit (paper < paper-2 < card), le filet prenant
+      le relais de l'ombre au bord des surfaces.
+   3. Les énergies s'échangent. Le décoratif — halos, pastille de présence,
+      réseau vivant — MONTE en intensité (ce sont des lumières dans une ville la
+      nuit) pendant que l'informationnel — encre, filets — s'adoucit. Le réflexe
+      inverse (tout baisser) donne une interface éteinte.
+   Tous les couples porteurs de texte sont vérifiés AA (≥ 4,5:1), les éléments
+   purement décoratifs au seuil 3:1 ; `--color-line-strong` porte la limite des
+   champs de saisie et tient donc 3:1 sur le fond de page (WCAG 1.4.11).
+   Sélecteur unique (`[data-theme]`, jamais `prefers-color-scheme`) : `main.tsx`
+   pose toujours l'attribut avant le premier rendu, et le choix manuel doit
+   pouvoir contredire le système. La toute première peinture, avant le bundle,
+   est traitée par le `<style>` d'amorçage d'`index.html`. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-paper: #080d17;
+  --color-paper-2: #141d2c;
+  --color-card: #1b2433;
+  --color-ink: #e8edf5; /* et non du blanc pur : il éblouit et bave sur fond noir */
+  --color-muted: #9aa8bd;
+  --color-faint: #6c7c94;
+  --color-line: #2c384f;
+  --color-line-strong: #4e6082;
+
+  --color-blue: #6cb2ff; /* porte le texte : 8,8:1 sur le fond de page */
+  --color-blue-vivid: #2e93ff; /* décoratif (halo, sceau, focus) */
+  --color-blue-fill: #1f74d8; /* porte du blanc : 4,6:1 */
+  --color-blue-deep: #14589f;
+  --color-blue-tint: #142542;
+  --color-accent: #8b5cf6;
+  --color-verified: #3fd18e;
+  --color-verified-vivid: #17c964;
+  --color-verified-tint: #0f2c22;
+  --color-danger: #ff7b87;
+  --color-danger-tint: #2c1218;
+  /* Le blurple officiel tombe à 4,0:1 sur le fond nuit : il ne peut plus porter
+     le libellé, seulement le glyphe. Même découpage qu'en clair, autre bascule. */
+  --color-discord: #8f99ff;
+  --color-discord-vivid: #5865f2;
+  --color-discord-tint: #1b1f3d;
+
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.5), 0 18px 40px -22px rgba(0, 0, 0, 0.85);
+  --shadow-pop: 0 20px 44px -20px rgba(0, 0, 0, 0.9);
+
+  /* Point 3 : les nappes montent au lieu de descendre. */
+  --halo-blue: color-mix(in srgb, var(--color-blue-vivid) 30%, transparent);
+  --halo-accent: color-mix(in srgb, var(--color-accent) 26%, transparent);
+  --grid-dot: color-mix(in srgb, var(--color-blue) 14%, transparent);
+
+  --net-link: 108 178 255;
+  --net-halo: 46 147 255;
+  --net-node: 124 186 255;
+  --net-node-alt: 63 209 142;
+  --net-ring: 46 147 255;
+  --net-ring-alt: 23 201 100;
+
+  --figure-1: #6ba3e8;
+  --figure-2: #4bc493;
+  --figure-3: #a595d8;
+  --figure-4: #d19a72;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Base                                                                    */
+/* ----------------------------------------------------------------------- */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+/* `html` porte la même couleur que le corps : comme les trois éléments sont en
+   hauteur fixe, tout contenu plus long que la fenêtre laisserait autrement
+   apparaître le fond de `html` sous le corps (bande de couleur en bas de page).
+   Doit rester synchronisé avec le `<style>` d'amorçage de `index.html`. */
+html {
+  background-color: var(--color-paper);
+}
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background-color: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Hiérarchie portée par le poids et la taille, jamais par les capitales : les titres
+   se resserrent (interlettrage négatif) au lieu de s'espacer. */
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.022em;
+}
+h1 {
+  letter-spacing: -0.032em;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Anneau de focus au clavier, hérité partout. Les champs ont déjà leur propre halo
+   (`.input:focus`) : on ne les double pas. */
+:focus-visible {
+  outline: 2px solid var(--color-blue-vivid);
+  outline-offset: 2px;
+}
+.input:focus-visible {
+  outline: none;
+}
+::selection {
+  background: var(--color-blue-fill);
+  color: #fff;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Scrollbars                                                              */
+/* ----------------------------------------------------------------------- */
+.scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+  background-clip: padding-box;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Composants                                                              */
+/* ----------------------------------------------------------------------- */
+/* Surfaces flottantes : ombre courte et diffuse, légèrement teintée de bleu
+   (une ombre neutre grise « salit » le blanc et le rend terne). */
+.panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-panel);
+}
+
+.seal {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 16px;
+  color: #fff;
+  background: linear-gradient(150deg, var(--color-blue-vivid), var(--color-blue-deep));
+  box-shadow: 0 10px 22px -12px rgba(17, 133, 254, 0.7);
+}
+
+.input {
+  width: 100%;
+  background: var(--color-card);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-field);
+  color: var(--color-ink);
+  padding: 0.72rem 0.95rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.16s, box-shadow 0.16s;
+  outline: none;
+}
+.input::placeholder {
+  color: var(--color-faint);
+}
+.input:focus {
+  border-color: var(--color-blue-vivid);
+  box-shadow: 0 0 0 4px rgba(17, 133, 254, 0.16);
+}
+/* Action logée dans un champ (le dé qui relance le pseudo). Discrète au repos :
+   c'est une commodité, elle ne doit pas concurrencer la saisie. Le champ qui la
+   porte réserve la place à droite (`pr-11`). */
+.input-action {
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 999px;
+  color: var(--color-faint);
+  cursor: pointer;
+  transition: color 0.16s, background-color 0.16s;
+}
+.input-action:hover {
+  color: var(--color-blue);
+  background: var(--color-paper-2);
+}
+.input-action:focus-visible {
+  outline: 2px solid var(--color-blue-vivid);
+  outline-offset: 1px;
+}
+
+/* Boutons en pilule : forme sociale par excellence (Bluesky, iOS). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: -0.01em;
+  padding: 0.66rem 1.25rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s, border-color 0.16s,
+    color 0.16s, box-shadow 0.16s;
+  user-select: none;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  /* Dégradé du bleu d'aplat vers le bleu profond : du relief tout en gardant
+     4,9:1 au point le plus clair (4,6:1 en sombre). */
+  background: linear-gradient(160deg, var(--color-blue-fill), var(--color-blue-deep));
+  color: #fff;
+  box-shadow: 0 8px 20px -10px rgba(15, 111, 219, 0.6);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-blue-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -10px rgba(15, 111, 219, 0.55);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+/* Un dégradé à 50 % d'opacité lit « cassé » plutôt que « pas encore prêt ». Le bouton
+   inactif devient donc franchement plat et sourd — un état, pas un accident.
+   (Doit rester après `.btn:disabled`, même spécificité : c'est l'ordre qui tranche.) */
+.btn-primary:disabled {
+  background: var(--color-paper-2);
+  border-color: var(--color-line-strong);
+  color: var(--color-faint);
+  box-shadow: none;
+  opacity: 1;
+}
+.btn-ghost {
+  background: var(--color-card);
+  border-color: var(--color-line-strong);
+  color: var(--color-ink);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+  background: var(--color-blue-tint);
+}
+.btn-danger {
+  background: var(--color-card);
+  border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  color: var(--color-danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-danger-tint);
+}
+/* Pendant de `.discord-link` au format bouton (bloc final de « Comment ça
+   marche »), pour que le lien communautaire ait la même identité partout. */
+.btn-discord {
+  background: var(--color-discord-tint);
+  border-color: color-mix(in srgb, var(--color-discord) 26%, transparent);
+  color: var(--color-discord);
+}
+.btn-discord svg {
+  color: var(--color-discord-vivid);
+}
+.btn-discord:hover:not(:disabled) {
+  border-color: var(--color-discord-vivid);
+  background: color-mix(in srgb, var(--color-discord-vivid) 13%, var(--color-card));
+}
+
+/* Étiquettes : casse normale, sans interlettrage — une majuscule espacée en mono,
+   c'est un onglet de dossier, pas une interface sociale. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: var(--color-muted);
+  background: var(--color-paper-2);
+}
+.chip-verified {
+  color: var(--color-verified);
+  background: var(--color-verified-tint);
+}
+.chip-blue {
+  color: var(--color-blue);
+  background: var(--color-blue-tint);
+}
+
+/* Bulle explicative ancrée au-dessus de son déclencheur (empreinte de session).
+   La gouttière est portée par l'ancre, pas par une marge de la bulle : sinon la
+   traverser au survol quitterait la zone et refermerait l'explication. */
+.popover-anchor {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  z-index: 30;
+  width: 15rem;
+  padding-bottom: 0.5rem;
+}
+.popover {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-pop);
+}
+
+/* Lien communautaire (Discord) — pastille à part, ni `.chip` (une étiquette ne
+   se clique pas) ni `.btn` (ce n'est pas une action du service). Elle vit en
+   pied de page, où un lien de 11 px en gris passe inaperçu : d'où la couleur de
+   marque, le glyphe et un poids de 600, qui la font exister sans venir
+   concurrencer le bouton d'entrée. */
+.discord-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-discord) 26%, transparent);
+  color: var(--color-discord);
+  background: var(--color-discord-tint);
+  transition: border-color 0.16s, background 0.16s, box-shadow 0.16s,
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Le glyphe prend le blurple officiel : c'est la forme *et* la couleur qui font
+   la reconnaissance immédiate. Décoratif, il échappe au seuil AA du libellé. */
+.discord-link svg {
+  color: var(--color-discord-vivid);
+}
+.discord-link:hover {
+  border-color: var(--color-discord-vivid);
+  background: color-mix(in srgb, var(--color-discord-vivid) 13%, var(--color-card));
+  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--color-discord-vivid) 70%, transparent);
+  transform: translateY(-1px);
+}
+.discord-link:active {
+  transform: translateY(1px);
+}
+
+/* Accès par le service onion Tor, en pied de page.
+   L'inverse exact du registre de `.discord-link` : celle-là est une porte d'entrée
+   qu'on veut voir, celle-ci une information de service pour qui la cherche. Elle
+   reste donc en gris de pied de page, sous les liens juridiques, sans rien imposer
+   à l'immense majorité qui n'utilise pas Tor Browser. */
+.footer__onion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.85rem;
+}
+.footer__onion-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+}
+/* L'adresse fait 62 caractères : sur mobile elle DOIT pouvoir se couper, sinon
+   elle force le défilement horizontal de toute la page. */
+.footer__onion-addr {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  color: var(--color-muted);
+  word-break: break-all;
+  max-width: 100%;
+}
+.footer__onion-copy {
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  background: none;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+.footer__onion-copy:hover {
+  color: var(--color-blue);
+  border-color: var(--color-blue);
+}
+
+/* Pastille de présence : halo pulsé (neutralisé par prefers-reduced-motion). */
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--color-verified-vivid);
+  animation: livePulse 2.4s ease-out infinite;
+}
+@keyframes livePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(23, 201, 100, 0.5);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px rgba(23, 201, 100, 0);
+  }
+}
+
+/* Avatars ronds : le carré arrondi lit « photo d'identité ». */
+.avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex: none;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-transform: uppercase;
+}
+/* Voile lumineux en diagonale : donne du volume à la couleur plate. Passe par un
+   pseudo-élément car la teinte est posée en style inline (raccourci `background`,
+   qui écraserait un `background-image` venu d'ici). */
+.avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Le voile s'éteint avant le centre : là où se trouvent les initiales, la teinte
+     reste pleine et conserve son contraste AA (un voile uniforme le ferait tomber
+     sous 4,5:1 en éclaircissant le fond). */
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0) 46%);
+}
+
+/* Bulles de message : remplissage franc, sans bordure, coins généreux. */
+.bubble {
+  max-width: min(74%, 540px);
+  padding: 0.6rem 0.9rem;
+  border-radius: 20px;
+  line-height: 1.45;
+  font-size: 0.95rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.bubble-them {
+  background: var(--color-paper-2);
+  border-bottom-left-radius: 6px;
+}
+.bubble-me {
+  background: linear-gradient(150deg, var(--color-blue-fill), var(--color-blue-deep));
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+.bubble-system {
+  align-self: center;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  background: var(--color-paper-2);
+  border-radius: 999px;
+  padding: 0.22rem 0.75rem;
+}
+/* Message cité (réponse) : bandeau compact posé en tête de bulle. Le liseré et le
+   retrait le détachent du message porteur sans en faire une seconde bulle — la
+   citation reste un rappel, pas un contenu à relire. */
+.quote {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  border-left: 3px solid currentColor;
+  border-radius: 4px 10px 10px 4px;
+  padding: 0.3rem 0.55rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
+/* Sur une bulle « moi » (aplat bleu), la teinte d'encre disparaîtrait : on éclaircit. */
+.quote--mine {
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.16);
+}
+.quote__author {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+/* Deux lignes au plus : la citation ne doit jamais peser plus que la réponse. */
+.quote__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  opacity: 0.85;
+}
+.quote--void {
+  font-style: italic;
+  opacity: 0.7;
+}
+button.quote {
+  cursor: pointer;
+  transition: background 0.14s;
+}
+button.quote:hover {
+  background: color-mix(in srgb, var(--color-ink) 12%, transparent);
+}
+.quote--mine:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Mention « @pseudo » : un aplat léger, pas une couleur de texte — sur une bulle
+   bleue comme sur une bulle grise, la teinte de fond suit celle qui la porte. */
+.mention {
+  border-radius: 5px;
+  padding: 0 0.18em;
+  font-weight: 600;
+  color: var(--color-blue);
+  background: var(--color-blue-tint);
+}
+.bubble-me .mention {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+}
+/* Quand c'est nous que l'on interpelle, la mention passe devant tout le reste. */
+.mention--me {
+  color: #fff;
+  background: var(--color-blue-fill);
+}
+.bubble-me .mention--me {
+  color: var(--color-blue-fill);
+  background: #fff;
+}
+/* Bulle qui nous interpelle : une teinte de fond, et non un second liseré — le
+   bord gauche porte déjà la couleur de l'auteur, et deux barres côte à côte
+   brouilleraient les deux informations. */
+.bubble--mention.bubble-them {
+  background: var(--color-blue-tint);
+}
+
+/* Liste des présents à interpeller, ancrée au-dessus du champ de saisie. */
+.mention-list {
+  position: absolute;
+  bottom: calc(100% - 0.5rem);
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 30;
+  max-width: 22rem;
+  max-height: 15rem;
+  overflow-y: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-pop);
+}
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 9px;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.mention-option--on {
+  background: var(--color-blue-tint);
+  color: var(--color-blue);
+  font-weight: 600;
+}
+
+/* Message rejoint depuis une citation : un halo bref, le temps de le repérer. */
+.msg--flash {
+  border-radius: 14px;
+  animation: msgFlash 1.6s ease-out both;
+}
+@keyframes msgFlash {
+  0%,
+  45% {
+    background: color-mix(in srgb, var(--color-blue) 20%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Barre de réponse au-dessus du champ de saisie : rappelle ce que l'on cite et
+   offre la sortie (croix ou Échap) au même endroit. */
+.reply-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 4px 12px 12px 4px;
+  border-left: 3px solid var(--color-blue);
+  background: var(--color-paper-2);
+}
+.reply-bar__body {
+  min-width: 0;
+  flex: 1;
+}
+.reply-bar__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-blue);
+}
+.reply-bar__text {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reply-bar__close {
+  flex: none;
+  color: var(--color-faint);
+  transition: color 0.14s;
+}
+.reply-bar__close:hover {
+  color: var(--color-ink);
+}
+
+/* Horodatage : chiffres à largeur fixe, ce qui donne l'alignement du mono sans son
+   esthétique de terminal. */
+.bubble .stamp-ts {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+  margin-top: 3px;
+}
+
+.fade-up {
+  animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Points animés de l'indicateur « est en train d'écrire ». */
+.typing-dots {
+  display: inline-flex;
+  gap: 1px;
+  color: var(--color-blue-vivid);
+  font-size: 1.1em;
+  line-height: 0.5;
+}
+.typing-dots span {
+  animation: typingBlink 1.2s infinite both;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes typingBlink {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Schémas illustrés (page « En savoir plus »)                             */
+/* ----------------------------------------------------------------------- */
+
+/* Fond de planche : maille pointillée, assez lâche pour ne plus évoquer le papier
+   millimétré tout en portant les schémas. */
+.schema-grid {
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+}
+
+/* Hachures diagonales — surface « non écrite » (disque vide). Valeur sémantique dans
+   les schémas : conservée. */
+.hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--color-faint) 22%, transparent) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+/* Révélation au défilement (classe « in » posée par IntersectionObserver). */
+.reveal {
+  opacity: 0;
+}
+.reveal.in {
+  animation: revealUp 0.62s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Flux de données le long d'un connecteur (pointillés qui défilent). */
+.dash-flow {
+  animation: dashFlow 1s linear infinite;
+}
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Accueil — halo de lumière + réseau de proximité                         */
+/* ----------------------------------------------------------------------- */
+
+/* Couche d'ambiance : clippe ses propres décors (aucun débordement). */
+.onb-atmos {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+/* Halo de lumière doux et statique — assoit le réseau sur un fond éclairé. */
+.onb-atmos::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -38%;
+  width: 1100px;
+  max-width: 150%;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, var(--halo-blue), transparent 72%);
+  opacity: 0.62;
+}
+/* Seconde nappe, teinte secondaire : la bichromie bleu/violet évite le fond
+   uniformément bleuté et donne sa vivacité à l'accueil. Purement décoratif. */
+.onb-atmos::after {
+  content: '';
+  position: absolute;
+  left: -14%;
+  bottom: -42%;
+  width: 820px;
+  max-width: 130%;
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, var(--halo-accent), transparent 70%);
+  opacity: 0.5;
+}
+/* Réseau vivant interactif (canvas plein cadre, réagit au curseur). Le fondu haut/bas
+   l'empêche de venir buter contre les filets de l'en-tête et du pied de page. */
+.onb-net {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  mask-image: linear-gradient(to bottom, transparent, #000 9%, #000 88%, transparent);
+  animation: netWake 1.5s ease-out 0.15s both;
+}
+@keyframes netWake {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Accroche d'en-tête. */
+.eyebrow-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-blue);
+  padding: 0.36rem 0.85rem;
+  border-radius: 999px;
+  background: var(--color-blue-tint);
+}
+
+/* ---- Volet gauche : la promesse -------------------------------------- */
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.35rem, 5.4vw, 3.75rem);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.038em;
+  text-wrap: balance;
+}
+.hero-lede {
+  margin-top: 1.25rem;
+  max-width: 33rem;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--color-muted);
+  text-wrap: pretty;
+}
+
+/* Cycle de vie d'une identité de session. Chronologie, pas liste d'arguments :
+   l'épine dorsale s'estompe au dernier repère — la donnée ne survit pas à l'onglet. */
+.lifeline {
+  margin-top: 2.25rem;
+  max-width: 33rem;
+  list-style: none;
+  padding: 0;
+}
+.lifeline li {
+  position: relative;
+  padding: 0 0 1.35rem 1.6rem;
+}
+.lifeline li:last-child {
+  padding-bottom: 0;
+}
+/* L'épine : un filet continu qui s'efface sur le dernier segment. */
+.lifeline li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.5rem;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-line-strong);
+}
+.lifeline li:last-child::before {
+  background: linear-gradient(to bottom, var(--color-line-strong), transparent);
+  bottom: -0.5rem;
+}
+/* Le repère : plein pour ce qui existe, creux pour l'instant où tout s'efface. */
+.lifeline li::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.34rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-blue);
+}
+.lifeline li:last-child::after {
+  background: var(--color-paper);
+  box-shadow: inset 0 0 0 1.5px var(--color-faint);
+}
+.lifeline__when {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--color-blue);
+}
+.lifeline li:last-child .lifeline__when {
+  color: var(--color-muted);
+}
+.lifeline__what {
+  margin-top: 0.3rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+}
+.lifeline__what strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+/* Écran d'attente — la clé qui se tire du hasard.
+
+   Cet écran ne charge rien : il montre une paire de clés en train d'être
+   fabriquée sur l'appareil. Les glyphes appartiennent à l'alphabet base64url,
+   celui dans lequel les clés de session et l'adresse .onion sont réellement
+   écrites — c'est la matière du sujet, pas un motif.
+
+   Aucune couleur nouvelle, aucune fonte nouvelle : un écran de transition n'a
+   pas à introduire un vocabulaire que le reste du site ne parle pas. */
+.splash {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 2rem 1.5rem;
+}
+.splash__inner {
+  max-width: 26rem;
+  text-align: center;
+}
+
+/* La clé. Interlettrage large et taille modeste : c'est ce qui sépare la
+   typographie du cliché de film. Chasse fixe pour que les glyphes ne bougent
+   pas latéralement en changeant — sans quoi la ligne tremblerait. */
+.splash__key {
+  display: flex;
+  justify-content: center;
+  gap: 0.28em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1;
+}
+.splash__glyph {
+  width: 0.72em; /* largeur figée : un « W » ne doit pas décaler la ligne */
+  color: var(--color-faint);
+  transition: color 0.22s ease-out;
+}
+/* Un glyphe fixé passe à l'encre : la progression se lit à la couleur, de
+   gauche à droite, sans barre de progression ni pourcentage. */
+.splash__glyph--set {
+  color: var(--color-ink);
+}
+
+.splash__title {
+  margin-top: 1.6rem;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--color-ink);
+}
+.splash__note {
+  margin-top: 0.45rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+  text-wrap: pretty;
+}
+
+/* N'apparaît qu'au-delà de 4 s, c'est-à-dire seulement quand l'attente devient
+   réelle. Sur le clearnet elle ne se voit jamais ; sur l'onion, où la première
+   résolution de descripteur peut prendre une minute et demie, elle est ce qui
+   distingue « ça travaille » de « c'est cassé ». */
+.splash__slow {
+  margin-top: 1.1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-verified);
+  animation: fadeUp 0.5s ease-out both;
+}
+
+/* Accès Tor, sur l'accueil.
+
+   La chronologie au-dessus énumère ce qui disparaît ; ce bloc lève la dernière
+   réserve — l'IP, la seule chose qui nous parvenait encore. Il se lit donc comme
+   la conclusion de l'argument, pas comme une quatrième étape.
+
+   Volontairement SANS cadre ni fond : une carte ajoutait ~250 px à la colonne
+   et repoussait le formulaire hors de l'écran. Un filet vertical suffit à
+   détacher le propos — il reprend la géométrie de l'épine de la chronologie
+   (même retrait de 1.6rem), en vert plutôt qu'en gris : la suite du même
+   raisonnement, tenue par une autre voix.
+
+   Ce vert est celui du badge « Via Tor » de la barre supérieure : la promesse
+   faite ici et sa confirmation une fois entré portent la même couleur. */
+.onion-door {
+  position: relative;
+  margin-top: 1.9rem;
+  max-width: 33rem;
+  padding-left: 1.6rem;
+}
+.onion-door::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-verified) 45%, transparent);
+}
+.onion-door__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-verified);
+}
+.onion-door__body {
+  margin-top: 0.3rem;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+  text-wrap: pretty;
+}
+.onion-door__body strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.onion-door__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+/* 0.8rem : la taille à laquelle les 62 caractères tiennent sur UNE ligne dans
+   la colonne de 33rem. Deux lignes doublaient la hauteur du bloc pour rien.
+   `break-all` reste nécessaire — sur mobile la chaîne pousserait sinon un
+   défilement horizontal à toute la page.
+
+   Aucune mise en valeur du préfixe `proxima` : ce serait apprendre à l'œil à
+   ne lire que le début, alors qu'un préfixe vanity s'imite et que c'est la fin
+   qui distingue la vraie adresse. Poids uniforme, donc lecture entière. */
+.onion-door__addr {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-ink);
+  word-break: break-all;
+  user-select: all; /* un clic sélectionne l'adresse entière, jamais un fragment */
+}
+.onion-door__copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-verified) 30%, transparent);
+  border-radius: 999px;
+  background: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-verified);
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s;
+}
+.onion-door__copy:hover {
+  border-color: var(--color-verified);
+  background: color-mix(in srgb, var(--color-verified) 10%, transparent);
+}
+
+/* ---- Volet droit : la porte ------------------------------------------ */
+.door {
+  --door-pad: 1.5rem;
+  padding: var(--door-pad);
+}
+@media (min-width: 640px) {
+  .door {
+    --door-pad: 1.75rem;
+  }
+}
+/* Filet de bord à bord : il sépare vraiment l'en-tête du formulaire, là où un
+   dégradé flottant ne faisait qu'un ornement. */
+.door__rule {
+  border: 0;
+  height: 1px;
+  background: var(--color-line);
+  margin: 1.15rem calc(var(--door-pad) * -1) 1.25rem;
+}
+
+/* Sélecteur segmenté : un seul rail, le choix actif est un galet posé dessus.
+   Trois boutons cerclés côte à côte lisaient « trois actions », pas « un choix ». */
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 999px;
+  background: var(--color-paper-2);
+}
+.segmented button {
+  padding: 0.5rem 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s, box-shadow 0.16s;
+}
+.segmented button:hover {
+  color: var(--color-ink);
+}
+.segmented button[aria-checked='true'] {
+  background: var(--color-card);
+  color: var(--color-blue);
+  box-shadow: 0 1px 2px rgba(15, 20, 25, 0.08);
+}
+
+.link-quiet {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  white-space: nowrap;
+  transition: color 0.16s;
+}
+.link-quiet:hover {
+  color: var(--color-blue);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Barre d'outils de liste (barre latérale)                                */
+/* ----------------------------------------------------------------------- */
+/* Un champ de recherche et ses commandes, sur une seule rangée. La hauteur est
+   imposée à la rangée entière (`--tools-h`) plutôt que déduite du rembourrage de
+   chacun : un `.input` et un `.btn` n'ont ni le même rembourrage vertical ni la
+   même taille de texte, et se retrouvaient donc décalés de trois pixels — assez
+   pour que la rangée paraisse bancale sans qu'on voie pourquoi. Le bouton adopte
+   aussi le rayon du champ : côte à côte, ils forment un seul groupe de commandes,
+   là où une pilule contre un champ à coins doux lisait comme deux objets étrangers.
+   Partagée par « À proximité » et « Salons » — deux rangées identiques. */
+.list-tools {
+  --tools-h: 2.25rem;
+  display: flex;
+  gap: 0.375rem;
+  margin-bottom: 0.5rem;
+  padding-inline: 0.25rem;
+}
+.list-tools__field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.list-tools__field .input {
+  height: var(--tools-h);
+  padding: 0 0.7rem 0 2.05rem;
+  font-size: 0.8125rem;
+}
+.list-tools__icon {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  display: grid;
+  transform: translateY(-50%);
+  color: var(--color-faint);
+  pointer-events: none;
+}
+.list-tools__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  height: var(--tools-h);
+  padding-inline: 0.65rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-field);
+  background: var(--color-card);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+.list-tools__btn:hover:not(:disabled) {
+  border-color: var(--color-blue);
+  background: var(--color-blue-tint);
+  color: var(--color-blue);
+}
+.list-tools__btn--on {
+  border-color: var(--color-blue);
+  background: var(--color-blue-tint);
+  color: var(--color-blue);
+}
+.list-tools__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.list-tools__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Liste des salons (barre latérale)                                       */
+/* ----------------------------------------------------------------------- */
+/* Une seule liste, d'ordre fixe, où « j'y suis » est un ÉTAT DE LA LIGNE et non
+   une position dans la colonne. Auparavant deux listes se partageaient la place
+   — « à rejoindre » en bas, « rejoints » en haut — et entrer faisait traverser
+   la frontière à la ligne : elle disparaissait d'un bloc pour renaître ailleurs,
+   sous une autre apparence, pendant que le panneau de droite basculait. Trois
+   mouvements pour une intention. Ici l'ordre ne dépend jamais de l'état, donc il
+   n'y a plus rien à déplacer : chaque état ne fait qu'ajouter un signe.
+
+   1. absent  — pastille sourde, la flèche paraît au survol ;
+   2. présent — un rail bleu au bord gauche ;
+   3. ouvert  — la ligne se remplit de la teinte d'accent. */
+.room-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 14px;
+  transition: background 0.16s;
+}
+.room-row:hover {
+  background: var(--color-card);
+}
+/* Le rail : la marque de présence. Posé dans la gouttière de la ligne, il
+   n'occupe aucune place dans le flux — l'apparition ne pousse donc rien. */
+.room-row--here::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 22px;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--color-blue);
+}
+.room-row--open,
+.room-row--open:hover {
+  background: var(--color-blue-tint);
+}
+/* Ligne dont la fiche est dépliée : elle et sa fiche partagent le même fond et se
+   rejoignent (coins carrés au raccord) — un seul bloc qui s'ouvre, pas deux objets. */
+.room-row--peeking,
+.room-row--peeking:hover {
+  background: var(--color-paper-2);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.room-row__main {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.25rem 0.5rem 0.6rem;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: inherit;
+}
+.room-row__tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--color-paper-2);
+  color: var(--color-faint);
+  transition: background 0.16s, color 0.16s;
+}
+.room-row--here .room-row__tile {
+  background: var(--color-blue-tint);
+  color: var(--color-blue);
+}
+.room-row__body {
+  min-width: 0;
+  flex: 1;
+}
+.room-row__title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+/* Le salon où l'on est prend le poids : à parcours égal, l'œil y retourne seul. */
+.room-row--here .room-row__title {
+  font-weight: 600;
+}
+.room-row__meta {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.6875rem;
+  color: var(--color-faint);
+}
+
+/* Étiquettes de ligne — cerclées, jamais pleines : un aplat de plus à côté de la
+   pastille de non-lus ferait deux points de couleur pour deux sens différents. */
+.room-tag {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 4px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-muted);
+}
+.room-tag--region {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+}
+
+/* Commandes de ligne. Ouvrir un salon reste le clic sur la ligne ; la sortie et la
+   flèche d'entrée sont donc secondaires, révélées au survol. Au doigt elles restent
+   visibles : sans survol, une commande masquée n'existe pas. */
+.room-row__aside {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  align-self: stretch;
+}
+.room-row__go,
+.room-row__more {
+  display: grid;
+  place-items: center;
+  color: var(--color-faint);
+  transition: color 0.14s, opacity 0.14s;
+}
+.room-row__more {
+  padding: 0.25rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.room-row:hover .room-row__go,
+.room-row__more:hover {
+  color: var(--color-blue);
+}
+@media (hover: hover) {
+  .room-row__go,
+  .room-row__more {
+    opacity: 0;
+  }
+  .room-row:hover .room-row__go,
+  .room-row:hover .room-row__more,
+  .room-row__more:focus-visible {
+    opacity: 1;
+  }
+}
+
+/* ---- Ligne de présent, dans le panneau des présents -------------------- */
+/* Même idiome que la sortie de salon ci-dessus : les commandes vivent dans un rail
+   à droite, effacées au repos et révélées au survol de la ligne (ou au clavier),
+   toujours visibles là où le survol n'existe pas. Le panneau garde ainsi son
+   premier travail — répondre « qui est là » — sans une colonne d'icônes allumées. */
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 8px;
+  transition: background-color 0.14s;
+}
+.member-row:hover {
+  background: var(--color-card);
+}
+.member-row__name {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+.member-row__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.125rem;
+}
+.member-row__action {
+  display: grid;
+  place-items: center;
+  padding: 0.25rem;
+  border-radius: 8px;
+  color: var(--color-faint);
+  cursor: pointer;
+  transition: color 0.14s, opacity 0.14s;
+}
+.member-row__action:hover {
+  color: var(--color-blue);
+}
+.member-row__action--danger:hover {
+  color: var(--color-danger);
+}
+@media (hover: hover) {
+  .member-row__action {
+    opacity: 0;
+  }
+  .member-row:hover .member-row__action,
+  .member-row__action:focus-visible {
+    opacity: 1;
+  }
+}
+/* Au doigt, les commandes sont visibles en permanence — autant qu'elles soient
+   atteignables : la zone de frappe s'élargit là, et seulement là, où le survol ne
+   peut pas confirmer qu'on a bien visé. */
+@media (hover: none) {
+  .member-row__action {
+    padding: 0.5rem 0.375rem;
+  }
+}
+/* Demande en cours : la couleur suffit à dire « pas maintenant ». Baisser
+   l'opacité entrerait en conflit avec la révélation au survol juste au-dessus. */
+.member-row__action:disabled {
+  cursor: default;
+  color: var(--color-line-strong);
+}
+
+/* ---- Fiche d'entrée / de sortie ---------------------------------------- */
+/* Dépliée sous sa ligne, dans le fil de la liste : ancrée par construction, elle
+   ne peut ni se détacher au défilement ni être rognée par le cadre défilant —
+   ce qu'une bulle flottante ferait ici. Le mouvement qu'elle provoque est celui
+   d'une ouverture, juste sous le doigt, et Échap le referme. */
+.room-card {
+  padding: 0.55rem 0.85rem 0.8rem;
+  border-radius: 0 0 14px 14px;
+  background: var(--color-paper-2);
+  animation: cardUnfold 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes cardUnfold {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.room-card__meta {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+.room-card__notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+.room-card__note {
+  display: flex;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.room-card__note-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-faint);
+}
+/* La phrase que les présents vont lire, dans l'encre la plus dense de la fiche :
+   c'est la seule chose à retenir avant d'agir, et elle doit se détacher du reste
+   de la note qui l'entoure. */
+.room-card__quote {
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.room-card__error {
+  margin-top: 0.6rem;
+  font-size: 0.78125rem;
+  color: var(--color-danger);
+}
+.room-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+.room-card__actions .btn {
+  padding: 0.45rem 0.95rem;
+  font-size: 0.8125rem;
+}
+
+/* ---- Fiche d'invitation à une conversation privée ---------------------- */
+/* Même mécanique que la fiche d'entrée : dépliée dans le fil de la liste, donc
+   ancrée par construction. Elle réutilise ses notes (`room-card__note`) et ses
+   actions — deux fiches qui énoncent le même genre de promesse doivent le faire
+   de la même façon. */
+.invite-card {
+  padding: 0.7rem 0.85rem 0.8rem;
+  border-radius: 14px;
+  background: var(--color-paper-2);
+  animation: cardUnfold 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.invite-card__lede {
+  font-size: 0.78125rem;
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.invite-card__lede strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+/* Les deux places du rendez-vous. Le seul écran du produit où l'on attend
+   quelqu'un : l'état doit s'y lire sans phrase — une place tenue, un fil qui
+   court vers une place encore vide, puis deux places occupées et le fil qui se
+   fixe. Une seule animation, et elle porte le sens (le lien est parti, il
+   cherche son destinataire) plutôt que de meubler l'attente. */
+.invite-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding-bottom: 0.6rem;
+}
+.invite-pair__wire {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background-image: linear-gradient(90deg, var(--color-line-strong) 0 5px, transparent 5px 10px);
+  background-size: 10px 2px;
+  background-repeat: repeat-x;
+  animation: inviteWire 1.1s linear infinite;
+}
+@keyframes inviteWire {
+  to {
+    background-position: 10px 0;
+  }
+}
+/* Quelqu'un est là : le fil se fixe et prend l'encre de l'action. */
+.invite-pair__wire--live {
+  background-image: none;
+  background-color: var(--color-blue);
+  animation: none;
+}
+.invite-pair__empty {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--color-line-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .invite-pair__wire {
+    animation: none;
+  }
+}
+
+/* Une adresse est une donnée, pas une phrase : chasse fixe, sélectionnable d'un
+   clic (seul recours si le presse-papiers est refusé), et son propre défilement
+   horizontal — un lien long ne doit jamais élargir la barre latérale. */
+.invite-url {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.35rem 0.35rem 0.6rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 10px;
+  background: var(--color-card);
+  /* Le lien porte un jeton insécable : sans ce plancher à 0, la boîte réclame la
+     largeur du texte entier et pousse le panneau qui la contient. Le texte, lui,
+     défile chez lui (`.invite-url__text`) — c'est le seul endroit où déborder est
+     légitime. Doublon volontaire du garde-fou de la grille dans Chat.tsx : la carte
+     doit rester posable n'importe où sans élargir son hôte. */
+  min-width: 0;
+}
+.invite-url__text {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.71rem;
+  color: var(--color-ink);
+  user-select: all;
+  scrollbar-width: none;
+}
+.invite-url__text::-webkit-scrollbar {
+  display: none;
+}
+.invite-url__copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 7px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-blue);
+  transition: background-color 0.15s ease;
+}
+.invite-url__copy:hover {
+  background: var(--color-blue-tint);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Barre supérieure (partagée par les quatre écrans)                       */
+/* ----------------------------------------------------------------------- */
+.topbar {
+  position: relative;
+  z-index: 20;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-card) 78%, transparent);
+  backdrop-filter: blur(10px);
+}
+.topbar--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.topbar__rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 56px;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+@media (min-width: 640px) {
+  .topbar__rail {
+    height: 64px;
+    padding-inline: 2rem;
+  }
+}
+/* Pages de texte : la marque doit tomber exactement sur le bord gauche du titre,
+   donc la gouttière de la barre suit celle de l'article (1,25rem à toute largeur).
+   À déclarer APRÈS la media query ci-dessus : même spécificité, c'est l'ordre qui
+   tranche — l'inverser reviendrait à ne rien écrire. */
+.topbar__rail--text {
+  padding-inline: 1.25rem;
+}
+
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+/* Le mot seul, sans slogan empilé dessous : le titre de la page dit déjà ce que
+   fait le service, et un lockup sur deux lignes décentre optiquement la marque. */
+.topbar__word {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-ink);
+  transition: color 0.16s;
+}
+.topbar__home {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+}
+.topbar__home:hover .topbar__word {
+  color: var(--color-blue);
+}
+
+/* État réel du service. Silencieux quand tout va bien (la pastille suffit), il
+   affiche son libellé dès que la connexion tombe — seul cas non silencieux, d'où
+   la couleur d'alerte portée directement par le libellé. */
+.topbar__service {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.topbar__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+}
+.topbar__dot--ok {
+  background: var(--color-verified-vivid);
+  animation: livePulse 2.4s ease-out infinite;
+}
+.topbar__dot--wait {
+  background: var(--color-faint);
+}
+.topbar__dot--down {
+  background: var(--color-danger);
+}
+.topbar__service-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-danger);
+  white-space: nowrap;
+}
+/* Sous ~380 px, marque + libellé d'état + lien de navigation ne tiennent plus sur une
+   ligne (mesuré : il reste 16 px à 390 px, plus rien à 360 px). On garde la pastille
+   rouge, et l'explication reste portée par l'infobulle et le lecteur d'écran — plutôt
+   qu'un libellé qui pousse la barre en deux lignes ou fait défiler la page. */
+@media (max-width: 23.75rem) {
+  .topbar__service-label {
+    display: none;
+  }
+}
+
+/* Accès par le service onion Tor — visible de soi seul.
+   Registre volontairement sobre : c'est une confirmation rassurante, pas une
+   décoration ni une distinction. Même famille visuelle que la pastille d'état. */
+.topbar__onion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-left: 0.5rem;
+  padding: 0.14rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--color-verified) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-verified) 10%, transparent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-verified);
+  white-space: nowrap;
+}
+/* Même seuil que le libellé d'état : sous ~380 px la barre déborde. L'icône seule
+   suffit à signaler l'accès, l'infobulle porte toujours l'explication. */
+@media (max-width: 23.75rem) {
+  .topbar__onion {
+    font-size: 0;
+    gap: 0;
+    padding: 0.2rem;
+  }
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Bascule d'apparence : une préférence d'affichage, pas une action du service.
+   D'où le glyphe nu, sans pilule ni bordure — la mettre au format `.btn-ghost`
+   la ferait peser autant que « Quitter », qui détruit la session. */
+.topbar__theme {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-faint);
+  cursor: pointer;
+  transition: color 0.16s, background-color 0.16s;
+}
+.topbar__theme:hover {
+  color: var(--color-blue);
+  background: var(--color-paper-2);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Fil de conversation (salon ou message privé)                            */
+/* ----------------------------------------------------------------------- */
+/* Le nom du fil est l'ancre de l'écran : c'est l'endroit où l'on se trouve. */
+.thread-title {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  color: var(--color-ink);
+}
+
+/* Barre de présence : les visages réellement là, dans la couleur que portent leurs
+   messages. Elle sert à la fois de compte et de commande d'ouverture du panneau. */
+.presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+}
+.presence__stack {
+  display: inline-flex;
+}
+/* Les visages se chevauchent, cerclés de la couleur du fond : une petite foule, pas
+   une file. Le premier ne se décale pas, sinon la barre part en négatif. */
+.presence__stack > * {
+  margin-left: -6px;
+  box-shadow: 0 0 0 2px var(--color-card);
+}
+.presence__stack > *:first-child {
+  margin-left: 0;
+}
+.presence__more {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  min-width: 20px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--color-paper-2);
+  color: var(--color-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.presence__count {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  transition: color 0.16s;
+}
+.presence:hover .presence__count {
+  color: var(--color-blue);
+}
+
+/* Signalement : outil de modération, pas élément de lecture. Affiché en permanence, il
+   posait une ligne grise sous chaque message reçu. On le révèle au survol du message —
+   mais seulement là où le survol existe : au tactile il reste visible, sinon il
+   deviendrait inatteignable. Le focus clavier le révèle aussi. */
+/* Actions d'un message (répondre, signaler) : discrètes par défaut, révélées au
+   survol là où il y a un pointeur. Au doigt, elles restent visibles — un survol
+   n'existe pas et une action invisible n'existe pas non plus. */
+.msg-actions {
+  display: flex;
+  gap: 0.7rem;
+  margin-top: 2px;
+}
+.msg-action {
+  font-size: 0.6875rem;
+  color: var(--color-faint);
+  transition: opacity 0.14s, color 0.14s;
+}
+.msg-action:hover {
+  color: var(--color-ink);
+}
+.msg-action--danger:hover {
+  color: var(--color-danger);
+}
+@media (hover: hover) {
+  .msg .msg-action {
+    opacity: 0;
+  }
+  .msg:hover .msg-action,
+  .msg-action:focus-visible {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

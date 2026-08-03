@@ -1,0 +1,32 @@
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Rapports de couverture de tests
+coverage/
+frontend/coverage/
+
+# Secrets locaux — jamais versionnés
+.env
+.env.*
+!.env.example
+
+# Cible de déploiement (hôte, domaine) — propre à chaque installation
+.deploy.env
+
+# Logs & artefacts de scratch
+*.log
+*.err
+scratchpad/
+
+# Sources brutes téléchargées par scripts/build-geo.js (INSEE, GeoNames).
+# Seuls les fichiers générés — server/data/cities.json et postal.json — sont versionnés.
+.geo-cache/
+
+# Outillage local / IDE — non pertinent pour le déploiement
+.idea/
+.playwright-mcp/
+.claude/
+
+# macOS
+.DS_Store

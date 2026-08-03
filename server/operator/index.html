@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Console de modération</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0e1116;
+        color: #e6e9ef;
+      }
+      header {
+        padding: 14px 20px;
+        border-bottom: 1px solid #232a34;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+      .tag { font: 11px/1 monospace; padding: 3px 7px; border-radius: 6px; background: #232a34; color: #9aa4b2; }
+      main { max-width: 880px; margin: 0 auto; padding: 20px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      input, button {
+        font: inherit;
+        border-radius: 8px;
+        border: 1px solid #2c3440;
+        padding: 8px 12px;
+      }
+      input { flex: 1; min-width: 220px; background: #161b22; color: #e6e9ef; }
+      button { background: #1f6feb; color: #fff; border-color: #1f6feb; cursor: pointer; }
+      button.ghost { background: transparent; color: #9aa4b2; border-color: #2c3440; }
+      button.danger { background: #b62324; border-color: #b62324; }
+      .panel { border: 1px solid #232a34; border-radius: 12px; padding: 14px; margin-bottom: 14px; background: #131820; }
+      .muted { color: #9aa4b2; font-size: 13px; }
+      .report { border: 1px solid #232a34; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #161b22; }
+      .report .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+      .report .content { white-space: pre-wrap; word-break: break-word; background: #0e1116; border-radius: 8px; padding: 10px; margin: 8px 0; }
+      .badge { font: 11px/1 monospace; padding: 3px 7px; border-radius: 6px; }
+      .badge.reason { background: #30363d; color: #e6e9ef; }
+      .badge.prio { background: #b62324; color: #fff; }
+      .badge.unverified { background: #6e4a00; color: #ffd479; }
+      .badge.filter { background: #133a2a; color: #6ee7a8; }
+      .empty { text-align: center; color: #6b7480; padding: 40px 0; }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        padding: 11px 18px;
+        border-radius: 10px;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+        z-index: 50;
+      }
+      .toast.ok { background: #133a2a; color: #6ee7a8; border: 1px solid #1d7a55; }
+      .toast.err { background: #3a1416; color: #ff8a8a; border: 1px solid #b62324; }
+      .report.acted { opacity: 0.55; }
+      .dash-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+      .stat { border: 1px solid #232a34; border-radius: 10px; padding: 12px 14px; background: #161b22; }
+      .stat .num { font-size: 26px; font-weight: 700; line-height: 1.1; }
+      .stat .num.prio { color: #ff8a8a; }
+      .stat .lbl { font-size: 12px; color: #9aa4b2; margin-top: 4px; }
+      .stat .sub { font-size: 11px; color: #6b7480; margin-top: 6px; }
+      .health { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: #9aa4b2; }
+      .health .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; background: #6b7480; }
+      .health .dot.ok { background: #6ee7a8; }
+      .health .dot.warn { background: #ffd479; }
+      .health .dot.err { background: #ff8a8a; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Console de modération</h1>
+      <span class="tag">DSA art.16 — notice &amp; action</span>
+      <span class="tag" id="status">déconnecté</span>
+    </header>
+    <main>
+      <section id="login" class="panel">
+        <p class="muted">
+          Accès réservé à l'opérateur. Saisissez le jeton (<code>OPERATOR_SECRET</code>). Aucune donnée n'est
+          journalisée ; les signalements affichés ne contiennent jamais d'adresse IP.
+        </p>
+        <div class="row">
+          <input id="token" type="password" placeholder="Jeton opérateur" autocomplete="off" />
+          <button id="connect">Se connecter</button>
+        </div>
+        <p id="loginError" class="muted" style="color: #ff8a8a" hidden></p>
+      </section>
+
+      <section id="console" hidden>
+        <div class="panel">
+          <div class="dash-head">
+            <strong>Tableau de bord</strong>
+            <span class="muted" id="metricsTs">en attente…</span>
+          </div>
+          <p class="muted">Métriques agrégées et anonymes (aucune donnée nominative, aucune IP).</p>
+          <div class="stats">
+            <div class="stat"><div class="num" id="mSessions">–</div><div class="lbl">Sessions actives</div></div>
+            <div class="stat">
+              <div class="num" id="mRooms">–</div><div class="lbl">Salons publics</div>
+              <div class="sub" id="mRoomsSub"></div>
+            </div>
+            <div class="stat"><div class="num" id="mMembers">–</div><div class="lbl">Participants (salons)</div></div>
+            <div class="stat">
+              <div class="num" id="mReports">–</div><div class="lbl">Signalements en attente</div>
+              <div class="sub" id="mReportsSub"></div>
+            </div>
+            <div class="stat"><div class="num prio" id="mPriority">–</div><div class="lbl">Dont prioritaires</div></div>
+            <div class="stat"><div class="num" id="mAuto">–</div><div class="lbl">Dont filtre auto</div></div>
+          </div>
+          <div class="health">
+            <span><span class="dot" id="dRedis"></span><span id="mRedis">Redis : —</span></span>
+            <span><span class="dot" id="dSalt"></span><span id="mSalt">Sel IP : —</span></span>
+            <span id="mUptime">Uptime : —</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row" style="justify-content: space-between">
+            <strong>Réquisition légale</strong>
+            <span class="muted" id="freezeState">sel IP : rotation normale</span>
+          </div>
+          <p class="muted">
+            Préservation <em>prospective</em> uniquement (à partir de l'instant du gel — jamais rétroactif). Exception
+            bornée et tracée à RG-08.
+          </p>
+          <div class="row">
+            <button id="freeze" class="ghost">Geler le sel IP</button>
+            <button id="unfreeze" class="ghost" hidden>Dégeler</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row" style="justify-content: space-between">
+            <strong>Signalements</strong>
+            <span class="muted" id="count">0</span>
+          </div>
+          <div id="reports"></div>
+          <div id="empty" class="empty">Aucun signalement en attente.</div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/operator/app.js"></script>
+  </body>
+</html>

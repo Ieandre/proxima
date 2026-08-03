@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Les deux thèmes sont pris en charge : sans cette déclaration le navigateur
+         peindrait le canevas en blanc sous une interface nuit. `theme-color` (barre
+         du navigateur mobile) est réécrit par `lib/theme.ts` à chaque bascule. -->
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0f6fdb" />
+
+    <title>Proxima — messagerie anonyme et chiffrée de proximité</title>
+    <meta
+      name="description"
+      content="Proxima — messagerie anonyme de proximité. Aucune inscription, aucune trace. Messages privés chiffrés de bout en bout. Vous fermez l'onglet, il ne reste rien."
+    />
+    <link rel="canonical" href="https://proximachat.eu/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+
+    <!--
+      Icônes & PWA. On ne déclare PAS logo.png (1024×1024, ~290 Ko) comme icône :
+      certains navigateurs choisissent la plus grande déclarée et téléchargeaient
+      300 Ko à chaque visite pour un onglet de 16 px. Le logo pleine résolution
+      reste référencé là où il sert vraiment : le JSON-LD Organization.
+
+      Le SVG est déclaré en premier : les navigateurs qui le comprennent le
+      préfèrent (1,5 Ko, net à 16 px comme sur écran Retina) et ignorent le PNG,
+      qui reste le repli des autres. Tous ces fichiers sont générés depuis le
+      logo par `scripts/build-brand-assets.js`.
+    -->
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Open Graph (aperçu de lien : WhatsApp, Discord, Signal, LinkedIn…) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Proxima" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:url" content="https://proximachat.eu/" />
+    <meta property="og:title" content="Proxima — messagerie anonyme et chiffrée de proximité" />
+    <meta
+      property="og:description"
+      content="Parlez aux gens autour de vous, sans rien révéler de vous. Aucun compte, aucune trace, messages privés chiffrés de bout en bout."
+    />
+    <meta property="og:image" content="https://proximachat.eu/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Proxima — messagerie anonyme et chiffrée de proximité" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Proxima — messagerie anonyme et chiffrée de proximité" />
+    <meta
+      name="twitter:description"
+      content="Parlez aux gens autour de vous, sans rien révéler de vous. Aucun compte, aucune trace, messages chiffrés de bout en bout."
+    />
+    <meta name="twitter:image" content="https://proximachat.eu/og-image.png" />
+    <meta name="twitter:image:alt" content="Proxima — messagerie anonyme et chiffrée de proximité" />
+
+    <!--
+      Données structurées (schema.org). Bloc de données autorisé par un hash SHA-256
+      dans la CSP (server/security.js). ⚠ Le contenu tient sur UNE seule ligne, sans
+      saut de ligne ni indentation entre les balises : le hash porte sur les octets
+      exacts du contenu, il resterait donc sensible au CRLF (dev Windows) contre LF
+      (VM Linux). Toute modification impose de recalculer le hash — `npm test` le
+      vérifie (test/csp-jsonld.test.js).
+    -->
+    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://proximachat.eu/#website","url":"https://proximachat.eu/","name":"Proxima","inLanguage":"fr","description":"Messagerie anonyme de proximité, sans compte et sans trace. Messages privés chiffrés de bout en bout, éphémères par conception.","publisher":{"@id":"https://proximachat.eu/#org"}},{"@type":"Organization","@id":"https://proximachat.eu/#org","name":"Proxima","url":"https://proximachat.eu/","logo":{"@type":"ImageObject","url":"https://proximachat.eu/logo.png","width":1024,"height":1024},"email":"proximachat@proton.me"},{"@type":"WebApplication","@id":"https://proximachat.eu/#app","name":"Proxima","url":"https://proximachat.eu/","applicationCategory":"CommunicationApplication","operatingSystem":"Web","browserRequirements":"Navigateur récent avec JavaScript activé","inLanguage":"fr","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"publisher":{"@id":"https://proximachat.eu/#org"},"featureList":["Messagerie anonyme sans inscription ni email","Messages privés chiffrés de bout en bout","Salons de discussion de proximité","Aucune conservation des messages ni profilage publicitaire"],"typicalAgeRange":"18-"},{"@type":"FAQPage","@id":"https://proximachat.eu/#faq","mainEntity":[{"@type":"Question","name":"Proxima est-il vraiment anonyme ?","acceptedAnswer":{"@type":"Answer","text":"Oui. Aucun compte, aucun email, aucun numéro de téléphone. Votre identité n'existe que le temps d'une visite, puis disparaît à la fermeture de l'onglet."}},{"@type":"Question","name":"Mes messages sont-ils chiffrés ?","acceptedAnswer":{"@type":"Answer","text":"Les messages privés sont chiffrés de bout en bout sur votre appareil. Le serveur ne voit passer que des enveloppes opaques et ne peut pas les lire."}},{"@type":"Question","name":"Proxima conserve-t-il mes données ?","acceptedAnswer":{"@type":"Answer","text":"Non. Il n'existe aucune base de données de contenu : tout vit en mémoire et s'efface. Pas de traçage publicitaire, pas de profilage, pas de revente de données."}},{"@type":"Question","name":"Comment fonctionne la proximité ?","acceptedAnswer":{"@type":"Answer","text":"Proxima vous met en relation avec des personnes situées à proximité, à partir de la ville que vous indiquez à l'entrée."}},{"@type":"Question","name":"Faut-il installer une application ?","acceptedAnswer":{"@type":"Answer","text":"Non. Proxima fonctionne directement dans le navigateur, sur ordinateur comme sur mobile. Rien à installer, rien à mettre à jour."}},{"@type":"Question","name":"Proxima est-il gratuit ?","acceptedAnswer":{"@type":"Answer","text":"Oui, entièrement gratuit et sans publicité. Il n'y a ni compte à créer, ni offre payante, ni données revendues."}},{"@type":"Question","name":"Y a-t-il un âge minimum ?","acceptedAnswer":{"@type":"Answer","text":"Oui, le service est strictement réservé aux personnes de 18 ans et plus."}}]}]}</script>
+
+    <!--
+      Anti-FOUC : l'app-shell statique ci-dessous n'existe que pour les moteurs de
+      recherche et les visiteurs sans JavaScript (son texte reste dans le HTML brut).
+      On le masque dès que le CSS est chargé — React remplace #root au montage — et on
+      ne le ré-affiche qu'en l'absence de JavaScript. Fond neutre = pas de flash blanc.
+      Pur CSS (style-src 'unsafe-inline'), aucun script inline (CSP script-src par hash).
+    -->
+    <style>
+      html { background: #fbfcfd; }
+      #seo-shell { display: none; }
+
+      /*
+        Thème sombre à la toute première peinture, avant que le bundle n'ait posé
+        `data-theme` : sans elle, un visiteur en thème sombre prend un éclair blanc.
+        On interroge ici le système et non le choix mémorisé — la CSP interdit tout
+        script inline, `sessionStorage` est donc illisible à ce stade. Le seul cas
+        non couvert est le rechargement d'un onglet qui a explicitement contredit son
+        système : l'éclair dure alors le temps d'analyser le bundle.
+        Les valeurs doivent rester synchronisées avec le bloc `[data-theme='dark']`
+        de `src/index.css`.
+      */
+      @media (prefers-color-scheme: dark) {
+        html { background: #080d17; }
+        /* La coquille SEO (visiteurs sans JavaScript) porte ses couleurs en style
+           inline pour ne dépendre ni de Tailwind ni du bundle : seul `!important`
+           peut les reprendre. */
+        #seo-shell { color: #e8edf5 !important; }
+        #seo-shell small,
+        #seo-shell p,
+        #seo-shell dd,
+        #seo-shell footer,
+        #seo-shell footer a { color: #9aa8bd !important; }
+        #seo-shell footer { border-top-color: #2c384f !important; }
+      }
+    </style>
+    <noscript>
+      <style>
+        #seo-shell { display: block; }
+      </style>
+    </noscript>
+  </head>
+  <body>
+    <!--
+      App-shell statique : contenu vitrine servi en HTML brut pour les moteurs de
+      recherche et les visiteurs sans JavaScript. React (createRoot) remplace
+      entièrement ce contenu au montage. Styles inline (autorisés par la CSP
+      style-src 'unsafe-inline') pour ne dépendre ni de Tailwind ni du bundle JS.
+    -->
+    <div id="root">
+      <main id="seo-shell" style="max-width:680px;margin:0 auto;padding:56px 24px;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;color:#1a2230;line-height:1.6">
+        <header style="display:flex;align-items:center;gap:12px;margin-bottom:40px">
+          <span style="display:inline-grid;place-items:center;width:40px;height:40px;border-radius:14px;background:#0f6fdb;color:#fff;font-size:20px">◈</span>
+          <span>
+            <strong style="display:block;font-size:19px;letter-spacing:-.02em">Proxima</strong>
+            <small style="color:#5b6676;font-size:12px">Anonyme · Chiffré · Éphémère</small>
+          </span>
+        </header>
+
+        <h1 style="font-size:2rem;line-height:1.15;font-weight:600;margin:0 0 16px">
+          Parlez aux gens autour de vous, sans rien révéler de vous.
+        </h1>
+        <p style="font-size:1.05rem;color:#3c4859;max-width:52ch">
+          <strong>Proxima</strong> est une messagerie anonyme de proximité. Aucun compte, aucun email, aucune trace&nbsp;:
+          votre identité existe le temps d'une visite, puis disparaît. Les messages privés sont chiffrés de bout en bout —
+          nous ne pouvons pas les lire.
+        </p>
+
+        <!--
+          Sans JavaScript, cette vitrine est tout ce qui s'affiche : React ne monte
+          pas, et le chat n'existe pas. Le cas n'est pas théorique — c'est le
+          réglage « Safest » de Tor Browser, précisément le public que le service
+          onion vise (design 2026-07-29). Sans cette phrase, le visiteur conclut
+          que le service est en panne.
+        -->
+        <noscript>
+          <p style="margin:32px 0 0;padding:14px 16px;border:1px solid #d6dde8;border-radius:12px;background:#f4f7fb;color:#3c4859;font-size:.95rem">
+            <strong>Le chat nécessite JavaScript.</strong> Cette page en présente le principe, mais les conversations
+            elles-mêmes s'exécutent dans votre navigateur — c'est ce qui permet de chiffrer les messages privés sur
+            votre appareil. Sous Tor Browser, le niveau de sécurité «&nbsp;Safest&nbsp;» désactive JavaScript&nbsp;:
+            passez en «&nbsp;Safer&nbsp;» ou «&nbsp;Standard&nbsp;» pour utiliser Proxima.
+          </p>
+        </noscript>
+
+        <h2 style="font-size:1.2rem;font-weight:600;margin:40px 0 12px">Pourquoi Proxima</h2>
+        <ul style="list-style:none;padding:0;margin:0;display:grid;gap:14px">
+          <li><strong>Chiffrement de bout en bout</strong> — les messages privés sont chiffrés sur votre appareil ; le serveur ne les voit jamais.</li>
+          <li><strong>Rien n'est conservé</strong> — tout vit en mémoire vive et s'efface à la fermeture de l'onglet.</li>
+          <li><strong>Aucun traçage publicitaire</strong> — pas de pub, pas de profilage, pas de revente de données. Vous n'êtes pas le produit.</li>
+          <li><strong>De proximité</strong> — discutez avec des personnes proches de vous, à partir de la ville que vous indiquez.</li>
+        </ul>
+
+        <h2 style="font-size:1.2rem;font-weight:600;margin:40px 0 12px">Questions fréquentes</h2>
+        <dl style="margin:0">
+          <dt style="font-weight:600;margin-top:16px">Proxima est-il vraiment anonyme&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Aucun compte, aucun email, aucun numéro. Votre identité de session est éphémère et disparaît à la fermeture de l'onglet.</dd>
+          <dt style="font-weight:600;margin-top:16px">Mes messages sont-ils chiffrés&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Les messages privés sont chiffrés de bout en bout sur votre appareil ; le serveur ne peut pas les lire.</dd>
+          <dt style="font-weight:600;margin-top:16px">Proxima conserve-t-il mes données&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Non. Il n'existe aucune base de données de contenu : tout vit en mémoire et s'efface. Pas de traçage publicitaire, pas de profilage, pas de revente de données.</dd>
+          <dt style="font-weight:600;margin-top:16px">Comment fonctionne la proximité&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Proxima vous met en relation avec des personnes situées à proximité, à partir de la ville que vous indiquez à l'entrée.</dd>
+          <dt style="font-weight:600;margin-top:16px">Faut-il installer une application&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Non. Proxima fonctionne directement dans le navigateur, sur ordinateur comme sur mobile. Rien à installer, rien à mettre à jour.</dd>
+          <dt style="font-weight:600;margin-top:16px">Proxima est-il gratuit&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Oui, entièrement gratuit et sans publicité. Il n'y a ni compte à créer, ni offre payante, ni données revendues.</dd>
+          <dt style="font-weight:600;margin-top:16px">Y a-t-il un âge minimum&nbsp;?</dt>
+          <dd style="margin:4px 0 0;color:#3c4859">Oui, le service est réservé aux personnes de 18 ans et plus.</dd>
+        </dl>
+
+        <p style="margin-top:40px">
+          <a href="/" style="display:inline-block;background:#0f6fdb;color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:600">
+            Entrer dans le service
+          </a>
+        </p>
+
+        <footer style="margin-top:48px;padding-top:20px;border-top:1px solid #e2e6ec;font-size:12px;color:#5b6676">
+          <a href="/#cgu" style="color:#5b6676">Conditions d'utilisation</a> ·
+          <a href="/#confidentialite" style="color:#5b6676">Confidentialité</a> ·
+          <a href="/#moderation" style="color:#5b6676">Modération</a> ·
+          <a href="/#mentions-legales" style="color:#5b6676">Mentions légales</a>
+        </footer>
+      </main>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
