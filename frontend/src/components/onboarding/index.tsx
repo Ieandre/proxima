@@ -175,7 +175,7 @@ export function Onboarding() {
       </div>
 
       <TopBar>
-        <a href="#en-savoir-plus" className="link-quiet">
+        <a href="/en-savoir-plus" className="link-quiet">
           Comment ça marche
         </a>
       </TopBar>
@@ -508,11 +508,11 @@ export function Onboarding() {
                   sous le bouton pour rester sous les yeux au moment du clic. */}
               <p className="mt-3.5 text-[11.5px] leading-relaxed text-faint">
                 En entrant, je certifie avoir <strong className="text-muted">18 ans ou plus</strong> et j'accepte les{' '}
-                <a href="#cgu" className="underline underline-offset-2 hover:text-blue">
+                <a href="/cgu" className="underline underline-offset-2 hover:text-blue">
                   conditions d'utilisation
                 </a>{' '}
                 et la{' '}
-                <a href="#moderation" className="underline underline-offset-2 hover:text-blue">
+                <a href="/moderation" className="underline underline-offset-2 hover:text-blue">
                   politique de modération
                 </a>
                 . Les contenus illégaux sont interdits et signalables.

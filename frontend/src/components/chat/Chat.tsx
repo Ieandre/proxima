@@ -82,7 +82,7 @@ export function Chat() {
           l'identique sur le même écran (trois avec la liste des présents). */}
       <TopBar column="app" sticky={false}>
         <a
-          href="#en-savoir-plus"
+          href="/en-savoir-plus"
           className="btn btn-ghost px-3"
           title="Comment ça marche : anonymat, chiffrement, sécurité"
         >

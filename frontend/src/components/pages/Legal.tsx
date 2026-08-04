@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { closePage } from '../../lib/router';
 import { useStore } from '../../store/useStore';
 import { SiteFooter } from '../layout/Footer';
 import { TopBar } from '../layout/TopBar';
@@ -15,36 +16,31 @@ import { Icon, Logo } from '../ui';
  * Le point de contact est injecté depuis /api/legal (CONTACT_EMAIL).
  * ======================================================================== */
 
-const TABS: { hash: string; label: string }[] = [
-  { hash: '#cgu', label: "Conditions d'utilisation" },
-  { hash: '#confidentialite', label: 'Confidentialité' },
-  { hash: '#moderation', label: 'Modération' },
-  { hash: '#mentions-legales', label: 'Mentions légales' },
+const TABS: { path: string; label: string }[] = [
+  { path: '/cgu', label: "Conditions d'utilisation" },
+  { path: '/confidentialite', label: 'Confidentialité' },
+  { path: '/moderation', label: 'Modération' },
+  { path: '/mentions-legales', label: 'Mentions légales' },
 ];
 
-export const LEGAL_HASHES = TABS.map((t) => t.hash);
-export const isLegalHash = (h: string): boolean => LEGAL_HASHES.includes(h);
+export const LEGAL_PATHS = TABS.map((t) => t.path);
+export const isLegalPath = (p: string): boolean => LEGAL_PATHS.includes(p);
 
-function closeLegal() {
-  if (window.history.length > 1) window.history.back();
-  else window.location.hash = '';
-}
-
-export function Legal({ hash }: { hash: string }) {
+export function Legal({ path }: { path: string }) {
   // Chargé une seule fois par `App.tsx` et distribué par le store (cf. About.tsx).
   const legal = useStore((s) => s.legal);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [hash]);
+  }, [path]);
 
   const contact = legal?.contactEmail || '';
   const updated = legal?.lastUpdated || '2026-08-03';
 
   return (
     <div className="min-h-full">
-      <TopBar column="text" onHome={closeLegal}>
-        <button className="btn btn-ghost px-3" onClick={closeLegal}>
+      <TopBar column="text" onHome={closePage}>
+        <button className="btn btn-ghost px-3" onClick={closePage}>
           <Icon name="back" size={16} /> Retour
         </button>
       </TopBar>
@@ -56,24 +52,23 @@ export function Legal({ hash }: { hash: string }) {
         <nav className="flex flex-wrap gap-2 border-b border-line py-5">
           {TABS.map((t) => (
             <a
-              key={t.hash}
-              href={t.hash}
-              className={`chip cursor-pointer ${hash === t.hash ? 'chip-blue' : ''}`}
-             
+              key={t.path}
+              href={t.path}
+              className={`chip cursor-pointer ${path === t.path ? 'chip-blue' : ''}`}
             >
               {t.label}
             </a>
           ))}
         </nav>
 
-        {hash === '#cgu' && <CGU />}
-        {hash === '#confidentialite' && <Confidentialite contact={contact} />}
-        {hash === '#moderation' && <Moderation contact={contact} />}
-        {hash === '#mentions-legales' && <Mentions contact={contact} updated={updated} />}
+        {path === '/cgu' && <CGU />}
+        {path === '/confidentialite' && <Confidentialite contact={contact} />}
+        {path === '/moderation' && <Moderation contact={contact} />}
+        {path === '/mentions-legales' && <Mentions contact={contact} updated={updated} />}
 
         <div className="mt-12 flex flex-col items-center gap-4 rounded-2xl border border-line bg-card p-8 text-center">
           <Logo className="h-12 w-12" />
-          <button className="btn btn-primary" onClick={closeLegal}>
+          <button className="btn btn-primary" onClick={closePage}>
             <Icon name="arrowRight" size={16} /> Revenir au service
           </button>
         </div>
@@ -94,8 +89,8 @@ function CGU() {
       <P>
         Les présentes conditions régissent l'accès et l'usage de Proxima (le «&nbsp;Service&nbsp;»), une messagerie
         anonyme de proximité, sans compte et éphémère. En accédant au Service, vous reconnaissez les avoir lues et
-        acceptées, ainsi que la <A href="#moderation">Politique de modération</A> et la{' '}
-        <A href="#confidentialite">Politique de confidentialité</A>.
+        acceptées, ainsi que la <A href="/moderation">Politique de modération</A> et la{' '}
+        <A href="/confidentialite">Politique de confidentialité</A>.
       </P>
 
       <H2>1. Objet du service</H2>
@@ -138,7 +133,7 @@ function CGU() {
       <P>
         Tout contenu peut être signalé depuis le Service. En cas de manquement, l'éditeur ou le propriétaire d'un salon
         peut retirer un message, exclure un participant, fermer un salon ou restreindre l'accès (mesure best-effort,
-        contournable du fait de l'anonymat). Les modalités figurent dans la <A href="#moderation">Politique de
+        contournable du fait de l'anonymat). Les modalités figurent dans la <A href="/moderation">Politique de
         modération</A>.
       </P>
 
@@ -169,7 +164,7 @@ function Confidentialite({ contact }: { contact: string }) {
 
       <H2>1. Responsable du traitement</H2>
       <P>
-        Le responsable du traitement est l'éditeur du Service (voir <A href="#mentions-legales">Mentions légales</A>).
+        Le responsable du traitement est l'éditeur du Service (voir <A href="/mentions-legales">Mentions légales</A>).
       </P>
 
       <H2>2. Données traitées</H2>
@@ -344,8 +339,8 @@ function Mentions({ contact, updated }: { contact: string; updated: string }) {
 
       <H2>Documents liés</H2>
       <P>
-        <A href="#cgu">Conditions d'utilisation</A> · <A href="#confidentialite">Politique de confidentialité</A> ·{' '}
-        <A href="#moderation">Politique de modération</A>.
+        <A href="/cgu">Conditions d'utilisation</A> · <A href="/confidentialite">Politique de confidentialité</A> ·{' '}
+        <A href="/moderation">Politique de modération</A>.
       </P>
 
       <P className="mt-6 text-[13px] text-faint">Dernière mise à jour&nbsp;: {updated}.</P>

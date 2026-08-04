@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import sodium from 'libsodium-wrappers';
 import { DISCORD_INVITE, SOURCE_URL } from '../../lib/links';
 import { isOnionOrigin } from '../../lib/onion';
+import { closePage } from '../../lib/router';
 import { useStore } from '../../store/useStore';
 import { TopBar } from '../layout/TopBar';
 import { DiscordGlyph, GitHubGlyph, Icon, Logo } from '../ui';
@@ -11,11 +12,6 @@ const B64 = () => sodium.base64_variants.URLSAFE_NO_PADDING;
 const PAD = 256;
 
 type Party = { publicKey: Uint8Array; privateKey: Uint8Array; keyType: string };
-
-function closeAbout() {
-  if (window.history.length > 1) window.history.back();
-  else window.location.hash = '';
-}
 
 export function About() {
   const [ready, setReady] = useState(false);
@@ -48,8 +44,8 @@ export function About() {
   return (
     <div className="min-h-full pb-24">
       {/* Barre */}
-      <TopBar column="text" onHome={closeAbout}>
-        <button className="btn btn-ghost px-3" onClick={closeAbout}>
+      <TopBar column="text" onHome={closePage}>
+        <button className="btn btn-ghost px-3" onClick={closePage}>
           <Icon name="back" size={16} /> Retour
         </button>
       </TopBar>
@@ -355,16 +351,16 @@ export function About() {
             ne sont signalés que via le texte que vous fournissez vous-même.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
-            <a href="#cgu" className="chip chip-blue cursor-pointer">
+            <a href="/cgu" className="chip chip-blue cursor-pointer">
               Conditions d'utilisation
             </a>
-            <a href="#confidentialite" className="chip chip-blue cursor-pointer">
+            <a href="/confidentialite" className="chip chip-blue cursor-pointer">
               Confidentialité (RGPD)
             </a>
-            <a href="#moderation" className="chip chip-blue cursor-pointer">
+            <a href="/moderation" className="chip chip-blue cursor-pointer">
               Politique de modération
             </a>
-            <a href="#mentions-legales" className="chip chip-blue cursor-pointer">
+            <a href="/mentions-legales" className="chip chip-blue cursor-pointer">
               Mentions légales
             </a>
           </div>
@@ -424,7 +420,7 @@ export function About() {
           </p>
           {/* Le Discord reste secondaire : la page se termine sur l'entrée dans le service. */}
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <button className="btn btn-primary" onClick={closeAbout}>
+            <button className="btn btn-primary" onClick={closePage}>
               <Icon name="arrowRight" size={16} /> Revenir au service
             </button>
             {DISCORD_INVITE && (

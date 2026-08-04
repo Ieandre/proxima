@@ -39,10 +39,10 @@ export function SiteFooter() {
         </a>
       </p>
       <p>
-        <a href="#cgu" className="hover:text-blue">Conditions d'utilisation</a> ·{' '}
-        <a href="#confidentialite" className="hover:text-blue">Confidentialité</a> ·{' '}
-        <a href="#moderation" className="hover:text-blue">Modération</a> ·{' '}
-        <a href="#mentions-legales" className="hover:text-blue">Mentions légales</a>
+        <a href="/cgu" className="hover:text-blue">Conditions d'utilisation</a> ·{' '}
+        <a href="/confidentialite" className="hover:text-blue">Confidentialité</a> ·{' '}
+        <a href="/moderation" className="hover:text-blue">Modération</a> ·{' '}
+        <a href="/mentions-legales" className="hover:text-blue">Mentions légales</a>
       </p>
       <OnionAccess />
     </footer>

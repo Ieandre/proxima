@@ -14,6 +14,7 @@ const ROOT = path.join(__dirname, '..');
 const INDEX_HTML = path.join(ROOT, 'frontend', 'index.html');
 const ROBOTS = path.join(ROOT, 'frontend', 'public', 'robots.txt');
 const SITEMAP = path.join(ROOT, 'frontend', 'public', 'sitemap.xml');
+const PAGES_JS = path.join(ROOT, 'server', 'pages.js');
 
 /** Contenu brut du bloc <script type="application/ld+json"> de frontend/index.html. */
 function jsonLdContent() {
@@ -124,12 +125,13 @@ test('SEO : X-Robots-Tag effectivement émis pour les chemins non publics', () =
 // Hôtes tiers légitimement cités dans les métadonnées (vocabulaires, pas des URLs du service).
 const EXTERNAL_HOSTS = new Set(['schema.org', 'www.sitemaps.org', 'www.w3.org', 'ogp.me']);
 
-// Garde-fou de bascule de domaine : index.html, robots.txt et sitemap.xml doivent
-// désigner une seule et même origine publique. Évite une migration à moitié faite
-// (canonical sur un domaine, sitemap sur l'ancien).
-test('SEO : une seule origine publique dans index.html, robots.txt et sitemap.xml', () => {
+// Garde-fou de bascule de domaine : index.html, robots.txt, sitemap.xml et la
+// déclaration des pages doivent désigner une seule et même origine publique.
+// Évite une migration à moitié faite (canonical sur un domaine, sitemap sur
+// l'ancien).
+test('SEO : une seule origine publique dans index.html, robots.txt, sitemap.xml et pages.js', () => {
   const hosts = new Set();
-  for (const file of [INDEX_HTML, ROBOTS, SITEMAP]) {
+  for (const file of [INDEX_HTML, ROBOTS, SITEMAP, PAGES_JS]) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
       const host = m[1].toLowerCase();

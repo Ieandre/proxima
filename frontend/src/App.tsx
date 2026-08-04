@@ -1,20 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useStore } from './store/useStore';
 import { connect } from './lib/socket';
 import { Onboarding } from './components/onboarding';
 import { Chat } from './components/chat/Chat';
 import { About } from './components/pages/About';
-import { Legal, isLegalHash } from './components/pages/Legal';
+import { Legal, isLegalPath } from './components/pages/Legal';
+import { currentPath, installLinkDelegate, subscribeRoute } from './lib/router';
 import { isOnionOrigin } from './lib/onion';
 import { armSound } from './lib/sound';
 
-const ABOUT_HASH = '#en-savoir-plus';
+const ABOUT_PATH = '/en-savoir-plus';
 
 export function App() {
   const status = useStore((s) => s.status);
   const toast = useStore((s) => s.toast);
   const hideToast = useStore((s) => s.hideToast);
-  const [hash, setHash] = useState(() => window.location.hash);
+  const route = useSyncExternalStore(subscribeRoute, currentPath);
 
   useEffect(() => {
     connect();
@@ -41,14 +42,13 @@ export function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const onHash = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+  // Les liens internes restent de vrais `<a href="/cgu">` — explorables par un
+  // moteur — mais ne rechargent pas la page : un rechargement détruirait la
+  // session éphémère (cf. lib/router.ts).
+  useEffect(() => installLinkDelegate(), []);
 
-  if (hash === ABOUT_HASH) return <About />;
-  if (isLegalHash(hash)) return <Legal hash={hash} />;
+  if (route === ABOUT_PATH) return <About />;
+  if (isLegalPath(route)) return <Legal path={route} />;
 
   return (
     <>

@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 
 const config = require('./config');
+const { PAGES, FILE_BY_PATH } = require('./pages');
 const { connectRedis, pubClient, subClient } = require('./infra/redis');
 const cities = require('./domain/cities');
 const security = require('./security');
@@ -32,11 +33,20 @@ function cacheHeaders(res, filePath) {
   }
 }
 
+/** `/cgu/` et `/cgu` désignent la même page ; `/` reste `/`. */
+function stripTrailingSlash(pathname) {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname;
+}
+
 /**
  * Sert la variante pré-compressée (`.br`/`.gz`) générée par
  * `scripts/precompress.js` quand le client l'accepte et qu'elle existe. On se
  * contente de réécrire `req.url` et de poser les en-têtes de négociation :
  * `express.static` fait tout le reste (ETag, Range, 304).
+ *
+ * Les pages publiques passent par `FILE_BY_PATH` : leur URL (`/cgu`) ne porte pas
+ * le nom du fichier pré-rendu (`cgu.html`). Sans cette table, elles seraient les
+ * seules réponses HTML non compressées du site.
  */
 function preferPrecompressed(dist) {
   const variants = [
@@ -53,10 +63,17 @@ function preferPrecompressed(dist) {
 
     const accepted = String(req.headers['accept-encoding'] || '');
 
+    let rel;
     let target;
     try {
-      // `/` (et tout chemin en `/`) désigne index.html, comme le fait express.static.
-      const rel = decodeURIComponent(req.path).replace(/\/$/, '/index.html');
+      const decoded = decodeURIComponent(req.path);
+      // Une page publique désigne son fichier pré-rendu ; `/` désigne index.html,
+      // comme le fait express.static pour tout chemin terminé par `/`. `rel` est
+      // toujours relatif à dist, sans slash initial.
+      rel = (FILE_BY_PATH.get(stripTrailingSlash(decoded)) || decoded.replace(/\/$/, '/index.html')).replace(
+        /^\/+/,
+        '',
+      );
       target = path.join(dist, rel);
     } catch {
       return next(); // séquence %XX invalide : laisser express répondre
@@ -72,7 +89,7 @@ function preferPrecompressed(dist) {
       // Le type doit être celui du fichier d'origine, pas celui de l'archive.
       res.type(path.extname(target));
       res.setHeader('Content-Encoding', variant.encoding);
-      req.url = `${req.path.replace(/\/$/, '/index.html')}${variant.ext}`;
+      req.url = `/${rel}${variant.ext}`;
       break;
     }
 
@@ -98,7 +115,7 @@ function notFound(_req, res) {
       "color:#1a2230;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center;padding:24px}" +
       'a{color:#0f6fdb}</style></head><body><main>' +
       '<h1 style="font-size:1.5rem;font-weight:600;margin:0 0 8px">Cette page n\'existe pas</h1>' +
-      '<p style="color:#5b6676;margin:0 0 24px">Proxima tient sur une seule page.</p>' +
+      '<p style="color:#5b6676;margin:0 0 24px">L\'adresse demandée ne correspond à aucune page de Proxima.</p>' +
       '<p><a href="/">Retour à l\'accueil</a></p>' +
       '</main></body></html>',
   );
@@ -151,16 +168,32 @@ async function main() {
     app.use(preferPrecompressed(dist));
     app.use(express.static(dist, { setHeaders: cacheHeaders }));
 
-    // `/` est la SEULE route de la SPA : la navigation interne passe par le
-    // fragment (`#cgu`, `#en-savoir-plus`…) et l'invitation par la query
-    // (`/?r=…&k=…`, `/?i=…`), jamais par le chemin. Un fallback `app.get('*')`
-    // vers index.html fabriquerait autant de « soft 404 » — pages dupliquées sans
-    // contenu propre, mauvais signal pour les moteurs. Tout le reste est une
-    // vraie 404.
-    app.get('/', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(indexHtml);
-    });
+    // Une route explicite par page publique (`server/pages.js`), et rien d'autre :
+    // l'invitation passe par la query (`/?r=…&k=…`, `/?i=…`), jamais par le chemin.
+    // Un fallback `app.get('*')` vers index.html fabriquerait autant de « soft
+    // 404 » — pages dupliquées sans contenu propre, mauvais signal pour les
+    // moteurs. Tout le reste est une vraie 404.
+    //
+    // Chaque page a son propre HTML pré-rendu (titre, description, canonique,
+    // texte), produit par `scripts/prerender-routes.js`. Un build antérieur à ce
+    // script n'en contient pas : on le dit au démarrage et on retombe sur
+    // index.html, où le routage client affichera quand même la bonne page — un
+    // build périmé ne doit pas rendre les documents juridiques inatteignables.
+    const missing = PAGES.filter((page) => !fs.existsSync(path.join(dist, page.file)));
+    if (missing.length) {
+      console.warn(
+        `[server] build sans pages pré-rendues (${missing.map((p) => p.file).join(', ')}) —` +
+          ' relancez `npm run build` dans frontend/ pour des métadonnées propres à chaque page.',
+      );
+    }
+
+    for (const page of PAGES) {
+      const file = path.join(dist, page.file);
+      app.get(page.path, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-cache');
+        res.sendFile(fs.existsSync(file) ? file : indexHtml);
+      });
+    }
     app.use(notFound);
   } else {
     app.get('/', (_req, res) =>
