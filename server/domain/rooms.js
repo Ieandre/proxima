@@ -110,9 +110,10 @@ function regionRoomId(country, code) {
 }
 
 /**
- * Vrai si l'id désigne un salon de région (arrivée AUTOMATIQUE). Sert à taire les
- * messages système « est entré·e / est sorti·e » qui n'ont pas de sens quand l'entrée
- * et la sortie sont automatiques.
+ * Vrai si l'id désigne un salon de région (arrivée AUTOMATIQUE). Sert à taire le
+ * message système « est sorti·e », qui n'a pas de sens quand l'entrée et la sortie
+ * ne sont pas des gestes — même pour qui a parlé dans le salon. Les arrivées, elles,
+ * ne sont annoncées dans AUCUN salon.
  */
 function isRegionRoomId(id) {
   return typeof id === 'string' && id.startsWith(REGION_PREFIX);

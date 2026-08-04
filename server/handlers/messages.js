@@ -50,11 +50,22 @@ function register({ io, socket, sid, limited, notifyReport }) {
     // `id` de message généré SERVEUR (non forgeable par le client) : cible du retrait ciblé.
     const base = { id: genId(), roomId, fromId: id, fromPseudo: me ? me.pseudo : '?', ts: payload.ts || null };
 
+    /**
+     * Diffusion, et prise de parole actée dans le même geste : c'est elle qui rendra
+     * le départ annonçable (cf. `announceLeave`). Marquée à la DIFFUSION et non à la
+     * tentative — un message rejeté plus haut (non membre, vide, hors quota) n'a été
+     * lu par personne, il ne doit donc pas donner droit à un « est sorti·e ».
+     */
+    const broadcast = (body) => {
+      io.to(`room:${roomId}`).emit('room:message', body);
+      socket.data.spoke.add(roomId);
+    };
+
     if (room.encrypted) {
       const env = payload.env;
       if (!env || typeof env !== 'object') return;
       const body = isMedia ? { ...mediaFields(payload), env } : { kind: 'text', env };
-      io.to(`room:${roomId}`).emit('room:message', { ...base, enc: '1', ...body });
+      broadcast({ ...base, enc: '1', ...body });
       return;
     }
 
@@ -67,13 +78,13 @@ function register({ io, socket, sid, limited, notifyReport }) {
     const reply = replyTo ? { replyTo } : {};
 
     if (isMedia) {
-      io.to(`room:${roomId}`).emit('room:message', { ...base, ...reply, ...mediaFields(payload) });
+      broadcast({ ...base, ...reply, ...mediaFields(payload) });
       return;
     }
 
     const text = clamp(payload.text, 2000).trim();
     if (!text) return;
-    io.to(`room:${roomId}`).emit('room:message', { ...base, ...reply, kind: 'text', text });
+    broadcast({ ...base, ...reply, kind: 'text', text });
 
     // La diffusion a déjà eu lieu ; un match crée seulement un signalement pour l'opérateur.
     const scan = moderation.scanText(text);

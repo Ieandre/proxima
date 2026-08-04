@@ -67,6 +67,8 @@ Trois classes de salons :
 | **Privé sur invitation** | Listé | Mot de passe **ou** lien d'invitation | En clair (modérable) |
 | **Privé chiffré à mot de passe** | Listé (nom public) | Mot de passe figé à la création | **Chiffré E2E** (Argon2id → `crypto_secretbox`) |
 
+- **Entrer est un clic, et ne s'annonce pas.** Aucune arrivée n'est diffusée dans aucun salon : la présence se lit dans la liste des présents, pas en interrompant la conversation. On peut donc regarder un salon avant d'y parler sans que cela coûte quoi que ce soit à personne. Seul un salon chiffré demande un temps d'arrêt — son mot de passe, dont la clé se dérive sur l'appareil.
+- **Sortir n'est annoncé que si l'on a parlé.** Qui n'a fait que passer repart comme il est venu ; qui participait ne laisse pas ses interlocuteurs parler dans le vide. La condition ne vit que dans la connexion, et meurt avec l'onglet.
 - **Gouvernance** : le créateur est propriétaire (exclure un membre, fermer le salon, changer le mot de passe). Le départ du propriétaire transfère le rôle au plus ancien participant présent (RG-06). Un salon vide est supprimé immédiatement (RG-05).
 - **Salons permanents** : salons de référence amorcés au démarrage depuis un fichier JSON ([`server/data/permanent-rooms.json`](./server/data/permanent-rooms.json)).
 - Les salons chiffrés ont un **plafond de membres** (défaut 16) pour borner la diffusion d'un espace non modérable.

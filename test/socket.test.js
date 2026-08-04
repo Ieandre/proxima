@@ -748,18 +748,20 @@ describe('room:list & room:peek', () => {
 // SALONS — accès (join)
 // ===========================================================================
 describe('room:join', () => {
-  test('salon public : join ok, message système, diffusion des membres', async () => {
+  test('salon public : join ok, arrivée MUETTE, diffusion des membres', async () => {
     const owner = await joinAs(ALICE, { forwardedFor: '203.0.113.50' });
     const create = await owner.sock.rpc('room:create', { name: 'Ouvert', type: 'public' });
     const roomId = create.room.id;
     const member = await joinAs(BOB, { forwardedFor: '203.0.113.51' });
+    owner.sock.clearInbox();
 
     const ack = await member.sock.rpc('room:join', { roomId });
     assert.equal(ack.ok, true);
     assert.equal(ack.owner, owner.id);
     assert.ok(ack.members.some((m) => m.id === member.id));
-    // Le propriétaire reçoit le message système d'arrivée + la maj des membres.
-    assert.ok(owner.sock.received('room:system').some((m) => /est entré·e/.test(m.payload.text)));
+    // Aucune annonce d'arrivée, dans aucun salon : la présence se lit dans la
+    // composition, que le propriétaire reçoit bien.
+    assert.equal(owner.sock.received('room:system').length, 0);
     assert.ok(owner.sock.last('room:members').members.some((m) => m.id === member.id));
   });
 
@@ -814,6 +816,69 @@ describe('room:join', () => {
     await moderation.banSession(guest.id);
     const ack = await guest.sock.rpc('room:join', { roomId: create.room.id });
     assert.match(ack.error, /modération/);
+  });
+});
+
+// ===========================================================================
+// SALONS — sortie : annoncée pour qui a parlé, muette pour qui n'a fait que passer
+// ===========================================================================
+describe('room:leave', () => {
+  /** Un salon public tenu par ALICE, dans lequel BOB est entré. */
+  async function pair(offset) {
+    const owner = await joinAs(ALICE, { forwardedFor: `203.0.113.${offset}` });
+    const create = await owner.sock.rpc('room:create', { name: 'Passage', type: 'public' });
+    const roomId = create.room.id;
+    const visitor = await joinAs(BOB, { forwardedFor: `203.0.113.${offset + 1}` });
+    await visitor.sock.rpc('room:join', { roomId });
+    owner.sock.clearInbox();
+    return { owner, visitor, roomId };
+  }
+
+  test('sortie MUETTE de qui n\'a rien écrit', async () => {
+    const { owner, visitor, roomId } = await pair(150);
+    await visitor.sock.deliver('room:leave', { roomId });
+    assert.equal(owner.sock.received('room:system').length, 0);
+    // La composition, elle, est bien rafraîchie : le présent disparaît de la liste.
+    assert.equal(owner.sock.last('room:members').members.some((m) => m.id === visitor.id), false);
+  });
+
+  test('sortie ANNONCÉE de qui a pris la parole', async () => {
+    const { owner, visitor, roomId } = await pair(152);
+    await visitor.sock.deliver('room:message', { roomId, text: 'bonsoir' });
+    await visitor.sock.deliver('room:leave', { roomId });
+    assert.ok(owner.sock.received('room:system').some((m) => /Bob est sorti·e/.test(m.payload.text)));
+  });
+
+  test('la parole reste acquise : sortir, revenir, ressortir sans écrire s\'annonce', async () => {
+    const { owner, visitor, roomId } = await pair(154);
+    await visitor.sock.deliver('room:message', { roomId, text: 'me revoilà bientôt' });
+    await visitor.sock.deliver('room:leave', { roomId });
+    await visitor.sock.rpc('room:join', { roomId });
+    owner.sock.clearInbox();
+    await visitor.sock.deliver('room:leave', { roomId });
+    assert.ok(owner.sock.received('room:system').some((m) => /Bob est sorti·e/.test(m.payload.text)));
+  });
+
+  test('un message REJETÉ ne vaut pas prise de parole', async () => {
+    const { owner, visitor, roomId } = await pair(156);
+    // Texte vide : rien n'est diffusé, donc personne ne l'a lu.
+    await visitor.sock.deliver('room:message', { roomId, text: '   ' });
+    await visitor.sock.deliver('room:leave', { roomId });
+    assert.equal(owner.sock.received('room:system').length, 0);
+  });
+
+  test('fermeture d\'onglet : même règle que la sortie explicite', async () => {
+    const { owner, visitor, roomId } = await pair(158);
+    await visitor.sock.deliver('room:message', { roomId, text: 'je file' });
+    owner.sock.clearInbox();
+    await visitor.sock.deliver('disconnect');
+    assert.ok(owner.sock.received('room:system').some((m) => /Bob est sorti·e/.test(m.payload.text)));
+  });
+
+  test('fermeture d\'onglet d\'un muet : rien n\'est annoncé', async () => {
+    const { owner, visitor } = await pair(160);
+    await visitor.sock.deliver('disconnect');
+    assert.equal(owner.sock.received('room:system').length, 0);
   });
 });
 

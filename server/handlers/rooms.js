@@ -2,7 +2,6 @@
 
 const config = require('../config');
 const { clamp, ack } = require('../protocol');
-const sessions = require('../domain/sessions');
 const rooms = require('../domain/rooms');
 const moderation = require('../domain/moderation');
 
@@ -11,8 +10,12 @@ const moderation = require('../domain/moderation');
  *
  * Les messages sont dans `messages.js` et la gouvernance (exclusion, fermeture,
  * mot de passe) dans `governance.js` : ce qui suit ne concerne que l'appartenance.
+ *
+ * Ce module ne diffuse plus rien lui-même — d'où l'absence d'`io` : entrer est
+ * muet, et l'annonce d'un départ est portée par `announceLeave` (contexte de
+ * connexion), partagée avec la fermeture d'onglet.
  */
-function register({ io, socket, sid, limited, pushLobby, broadcastMembers, handleLeave }) {
+function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLeave, announceLeave }) {
   socket.on('room:create', async (payload = {}, cb) => {
     const id = sid();
     if (!id) return ack(cb, { error: 'Non identifié.' });
@@ -101,15 +104,14 @@ function register({ io, socket, sid, limited, pushLobby, broadcastMembers, handl
     const owner = await rooms.ownerOf(roomId);
     ack(cb, { ok: true, room: rooms.toPublic(room), owner, members });
 
-    const me = await sessions.getPublicProfile(id);
-    // « entré·e » / « sorti·e » et non « a rejoint » / « a quitté » : on n'adhère à
-    // rien ici, on est présent ou on ne l'est plus. Le client emploie les mêmes deux
-    // verbes sur ses commandes, et la fiche d'entrée cite cette phrase mot pour mot
-    // avant d'agir — l'annonce ne doit donc jamais diverger d'ici.
-    io.to(`room:${roomId}`).emit('room:system', {
-      roomId,
-      text: `${me ? me.pseudo : 'Quelqu\'un'} est entré·e dans le salon.`,
-    });
+    // AUCUNE annonce d'arrivée, dans aucun salon. Entrer n'interrompt donc jamais
+    // la conversation en cours, et regarder un salon avant d'y parler ne coûte rien
+    // à personne — ce qui permet à l'entrée de n'être qu'un clic côté client.
+    //
+    // Rien n'est perdu pour autant : la composition diffusée juste après fait
+    // apparaître l'arrivant dans la liste des présents, et le compte de la ligne
+    // suit. La présence se lit là où elle a sa place. Un pseudo inconnu qui écrit
+    // pour la première fois annonce son arrivée mieux qu'une ligne système.
     await broadcastMembers(roomId);
     await pushLobby();
   });
@@ -120,14 +122,10 @@ function register({ io, socket, sid, limited, pushLobby, broadcastMembers, handl
     if (!id || !socket.data.rooms.has(roomId)) return;
     socket.leave(`room:${roomId}`);
     socket.data.rooms.delete(roomId);
-    // Salon de région : départ automatique/silencieux, pas de message système.
-    if (!rooms.isRegionRoomId(roomId)) {
-      const me = await sessions.getPublicProfile(id);
-      io.to(`room:${roomId}`).emit('room:system', {
-        roomId,
-        text: `${me ? me.pseudo : 'Quelqu\'un'} est sorti·e du salon.`,
-      });
-    }
+    // Annoncé APRÈS avoir quitté la diffusion : on ne se lit pas partir soi-même.
+    // Qui n'a rien écrit ici sort comme il est entré, sans que rien ne le signale
+    // (cf. `announceLeave`).
+    await announceLeave(roomId);
     await handleLeave(roomId, id);
   });
 }

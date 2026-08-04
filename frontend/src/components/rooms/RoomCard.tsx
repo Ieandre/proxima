@@ -7,14 +7,20 @@ import { Icon, Modal } from '../ui';
 /**
  * Fiche d'entrée / de sortie d'un salon.
  *
- * Entrer annonce publiquement votre pseudo aux présents (`room:system`) : le
- * geste est irréversible pour les autres. Cette fiche cite la phrase exacte
- * qu'ils vont lire, AVANT d'agir, et laisse repartir sans que personne n'ait
- * rien su.
+ * Elle ne s'ouvre plus que quand elle a quelque chose à DEMANDER ou à DÉTRUIRE.
+ * Un salon en clair s'ouvre d'un clic sur sa ligne : le serveur n'annonce aucune
+ * arrivée, et sortir se fait dans le même geste — il n'y avait donc rien à faire
+ * confirmer, seulement une route à barrer.
  *
- * Elle sert les deux sens et les trois chemins d'entrée — liste latérale
- * (`layout="inline"`), lien `?r=`, menu du salon (`layout="dialog"`) — pour
- * qu'un seul texte porte la même promesse partout.
+ * Restent ses deux cas porteurs :
+ *  - ENTRER dans un salon chiffré, où le mot de passe est la condition de la clé
+ *    (dérivée ici, jamais envoyée) ;
+ *  - SORTIR, qui peut effacer le salon (RG-05), coûter la ressaisie du mot de
+ *    passe, et — pour qui a pris la parole — s'annoncer aux présents.
+ *
+ * Elle sert les deux sens et les deux chemins (liste latérale `layout="inline"`,
+ * lien `?r=` et menu du salon `layout="dialog"`), pour qu'un seul texte porte la
+ * même promesse partout.
  *
  * Elle n'affiche JAMAIS qui est présent dans un salon où l'on n'est pas encore,
  * seulement combien : la discrétion est réciproque.
@@ -46,6 +52,11 @@ export function RoomCard({
   // Un salon chiffré exige la dérivation locale de la clé : son sel public est donc
   // la condition du champ de mot de passe (sans sel, rien à dériver).
   const needsPassword = mode === 'enter' && room.encrypted && !!room.salt;
+  // A-t-on pris la parole ici ? C'est ce qui décide si le départ sera annoncé aux
+  // présents (le serveur applique la même règle, cf. `announceLeave`). Lu dans le
+  // fil local plutôt que compté à part : un message à soi y est déjà marqué `me`,
+  // et le fil survit à une sortie — comme la mémoire qu'en garde le serveur.
+  const spoke = useStore((s) => (s.threads[`room:${room.id}`] || []).some((m) => m.kind === 'me'));
 
   const [password, setPassword] = useState(initialPassword || '');
   const [busy, setBusy] = useState(false);
@@ -125,23 +136,24 @@ export function RoomCard({
       )}
 
       <div className="room-card__notes">
-        {room.region ? (
-          <Note icon="eye-off">
-            {mode === 'enter'
-              ? 'Entrée et sortie discrètes : le salon de votre région ne prévient personne.'
-              : 'Sortie discrète : personne ne sera prévenu·e. Vous pourrez revenir depuis cette liste.'}
-          </Note>
-        ) : (
-          <Note icon="info">
-            {mode === 'enter' ? 'En entrant, ' : 'En sortant, '}les présents verront{' '}
-            {/* Espaces insécables à l'intérieur des guillemets : la typographie française
-                les impose, et elles empêchent au passage le « de rester seul en fin de ligne. */}
-            <span className="room-card__quote">
-              «&nbsp;{pseudo} {mode === 'enter' ? 'est entré·e dans le salon' : 'est sorti·e du salon'}&nbsp;»
-            </span>
-            .
-          </Note>
-        )}
+        {/* Rien sur l'entrée : elle ne prévient personne, dans aucun salon. La
+            présence se lit dans la liste des présents, une fois dedans. */}
+        {mode === 'leave' &&
+          (room.region || !spoke ? (
+            <Note icon="eye-off">
+              Sortie discrète : personne ne sera prévenu·e.
+              {room.region
+                ? ' Vous pourrez revenir depuis cette liste.'
+                : " Vous n'avez rien écrit ici."}
+            </Note>
+          ) : (
+            <Note icon="info">
+              En sortant, les présents verront{' '}
+              {/* Espaces insécables à l'intérieur des guillemets : la typographie française
+                  les impose, et elles empêchent au passage le « de rester seul en fin de ligne. */}
+              <span className="room-card__quote">«&nbsp;{pseudo} est sorti·e du salon&nbsp;»</span>.
+            </Note>
+          ))}
 
         {needsPassword && (
           <Note icon="lock">Le mot de passe ne quitte pas votre appareil : la clé est dérivée ici.</Note>

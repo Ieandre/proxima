@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { createInvite, refreshPresence } from '../../lib/socket';
+import { createInvite, joinRoom, refreshPresence } from '../../lib/socket';
 import { fingerprint } from '../../lib/crypto';
-import { buildRoomList, filterRooms, normalize } from '../../lib/rooms';
+import { buildRoomList, filterRooms, normalize, type RoomEntry } from '../../lib/rooms';
 import { splitPeople } from '../../lib/people';
 import { GENDER_LABEL, type Gender } from '../../lib/types';
 import { Avatar, Icon } from '../ui';
@@ -43,8 +43,11 @@ export function Sidebar() {
   const keyOpen = hoverKey || pinKey;
   const [roomsOpen, setRoomsOpen] = useState(true);
   const [renaming, setRenaming] = useState(false);
-  // Fiche dépliée sous une ligne : le seul endroit d'où l'on entre et d'où l'on sort.
+  // Fiche dépliée sous une ligne, quand il y a un mot de passe à demander ou un
+  // salon à détruire en sortant. Sinon, la ligne agit seule (cf. `enterRoom`).
   const [card, setCard] = useState<{ id: string; mode: RoomCardMode } | null>(null);
+  // Salon dont l'entrée est en cours : la ligne le dit, le temps de l'aller-retour.
+  const [joining, setJoining] = useState<string | null>(null);
   const [roomQuery, setRoomQuery] = useState('');
   const [hereOnly, setHereOnly] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -63,6 +66,29 @@ export function Sidebar() {
       /* crypto pas encore prêt — sans gravité */
     }
   }, []);
+
+  /**
+   * Clic sur une ligne de salon — un seul geste, trois issues.
+   *
+   * Entrer dans un salon en clair n'annonce plus rien à personne (le serveur ne
+   * diffuse aucune arrivée) et se défait d'un clic : il n'y a donc rien à faire
+   * confirmer, et la ligne fait ce qu'elle a l'air de faire. Seul un salon chiffré
+   * garde sa fiche, parce qu'elle a quelque chose à DEMANDER — le mot de passe dont
+   * la clé se dérive ici.
+   *
+   * L'ouverture du panneau de droite est le retour d'état : `joinRoom` rend le salon
+   * actif dès l'accusé. D'ici là, la ligne porte l'attente ; en cas de refus (salon
+   * fermé entre-temps, exclusion), on reste où l'on était avec un message.
+   */
+  async function enterRoom(r: RoomEntry) {
+    if (r.here) return setActive({ kind: 'room', id: r.id });
+    if (r.encrypted) return setCard({ id: r.id, mode: 'enter' });
+    if (joining) return;
+    setJoining(r.id);
+    const res = await joinRoom({ roomId: r.id });
+    setJoining(null);
+    if (!res.ok) showToast(res.error || "L'entrée a échoué.", 'warn');
+  }
 
   async function startInvite() {
     if (inviting) return;
@@ -310,11 +336,10 @@ export function Sidebar() {
                       room={r}
                       open={isActive('room', r.id)}
                       peeking={card?.id === r.id}
+                      joining={joining === r.id}
                       unread={unread[`room:${r.id}`] || 0}
                       mention={!!mentioned[`room:${r.id}`]}
-                      onEnter={() =>
-                        r.here ? setActive({ kind: 'room', id: r.id }) : setCard({ id: r.id, mode: 'enter' })
-                      }
+                      onEnter={() => enterRoom(r)}
                       onLeave={() => setCard({ id: r.id, mode: 'leave' })}
                     />
                     {card?.id === r.id && (

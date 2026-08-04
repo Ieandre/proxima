@@ -305,10 +305,29 @@ chaque module.
 **Contexte de connexion** — `handlers/index.js` construit un objet unique par socket
 et le passe au `register(ctx)` de chaque module : `io`, `socket`, `sid()` (session
 courante), `limited()` (anti-spam, seaux onion ou hash d'IP), `pushLobby()`,
-`broadcastMembers()`, `handleLeave()` (délégués à `room-actions.js`) et
-`notifyReport()` — qui pousse `report:new` vers `/admin` et `room:report:owner` vers
-le propriétaire du salon (modérateur de première ligne, RG-06). C'est ce contexte
-qui permet de déplacer un handler d'un fichier à l'autre sans réécrire son corps.
+`broadcastMembers()`, `handleLeave()` (délégués à `room-actions.js`),
+`announceLeave()` (voir ci-dessous) et `notifyReport()` — qui pousse `report:new`
+vers `/admin` et `room:report:owner` vers le propriétaire du salon (modérateur de
+première ligne, RG-06). C'est ce contexte qui permet de déplacer un handler d'un
+fichier à l'autre sans réécrire son corps.
+
+**Visibilité des entrées et des sorties** — **aucune arrivée n'est annoncée**, dans
+aucun salon : la présence se lit dans la composition (`room:members`) et dans le
+compte du salon, pas en interrompant la conversation. Entrer ne coûte donc rien à
+personne, ce qui permet côté client d'entrer d'un seul clic sur la ligne du salon.
+
+Le **départ** est annoncé par `announceLeave(roomId)` — et seulement celui de qui a
+**pris la parole** dans ce salon. La condition vit dans `socket.data.spoke`, un `Set`
+alimenté par `handlers/messages.js` **à la diffusion** d'un message (un message
+rejeté n'a été lu par personne) et acquis pour la session (sortir puis revenir ne
+rend pas muet quelqu'un que le salon a déjà entendu). Rien n'est écrit en Redis :
+l'ensemble meurt avec la connexion (RG-01/02).
+
+La règle lève l'asymétrie qu'une annonce de sortie seule créerait — « X est sorti·e »
+désignerait rétroactivement quelqu'un dont personne n'avait vu l'arrivée : silence
+pour qui n'a fait que passer, courtoisie envers ceux à qui l'on répondait. Le
+**salon de région** reste muet dans tous les cas (rattachement d'office). Fermer
+l'onglet suit exactement la même règle que `room:leave`.
 
 À la connexion : l'IP est extraite (`security.clientIp`, résistante au spoofing de
 `X-Forwarded-For` via `config.trustedProxies`) et utilisée **uniquement** pour
@@ -363,12 +382,12 @@ passe de salon en clair, une clé de chiffrement, une IP en clair.
 | `room:create` | client → serveur (ack) | `{ name, type, password?, encrypted?, verifier?, salt? }` | Crée le salon. Ack `{ room, invite?, owner, members }` |
 | `room:list` | client → serveur (ack) | — | `rooms.listPublic()` |
 | `room:peek` | client → serveur (ack) | `{ roomId }` | Pré-vol (nom + `encrypted` + `salt` public seulement) |
-| `room:join` | client → serveur (ack) | `{ roomId, password?, invite?, verifier? }` | Rejoint (vérifie ban, plafond chiffré, verifier/invite/mdp) |
-| `room:leave` | client → serveur | `{ roomId }` | Quitte + `handleLeave` |
+| `room:join` | client → serveur (ack) | `{ roomId, password?, invite?, verifier? }` | Rejoint (vérifie ban, plafond chiffré, verifier/invite/mdp). **Aucune annonce d'arrivée** |
+| `room:leave` | client → serveur | `{ roomId }` | Quitte + `announceLeave` (si l'on a parlé) + `handleLeave` |
 | `room:message` | ↔ | `{ roomId, text?/media?, enc? }` | Message (clair scanné, chiffré opaque). `id` **généré serveur** |
 | `room:report` | client → serveur (ack) | `{ roomId, messageId, … }` | Signalement d'un message de salon |
 | `room:members` | serveur → client | `{ roomId, members, owner }` | Liste des membres à jour |
-| `room:system` | serveur → client | `{ roomId, text }` | Message système (arrivée/départ/transfert) |
+| `room:system` | serveur → client | `{ roomId, text }` | Message système (départ *si l'on a parlé*, transfert, renommage, mot de passe) |
 | `room:retract` | serveur → client | `{ roomId, messageId }` | Retrait ciblé (modération) |
 | `room:report:owner` | serveur → client | report | Notifie le propriétaire (RG-06) |
 | `room:kicked` / `room:closed` | serveur → client | `{ roomId }` | Exclusion / fermeture |

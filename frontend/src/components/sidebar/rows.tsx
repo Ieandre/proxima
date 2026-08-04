@@ -8,6 +8,7 @@ export function RoomRow({
   room,
   open,
   peeking,
+  joining,
   unread,
   mention,
   onEnter,
@@ -16,6 +17,8 @@ export function RoomRow({
   room: RoomEntry;
   open: boolean;
   peeking: boolean;
+  /** Entrée en cours : la ligne est le seul endroit où l'attente peut se voir. */
+  joining?: boolean;
   unread: number;
   mention?: boolean;
   onEnter: () => void;
@@ -42,7 +45,16 @@ export function RoomRow({
       <button
         className="room-row__main"
         onClick={onEnter}
-        title={room.here ? `Ouvrir ${room.name}` : `Voir ${room.name} avant d'entrer`}
+        disabled={joining}
+        /* Un salon chiffré est le seul dont le clic n'entre pas tout de suite : il
+           demande le mot de passe dont la clé se dérive. Ailleurs, la ligne ouvre. */
+        title={
+          room.here
+            ? `Ouvrir ${room.name}`
+            : room.encrypted
+              ? `Entrer dans ${room.name} (mot de passe)`
+              : `Entrer dans ${room.name}`
+        }
       >
         <span className="room-row__tile">
           <Icon name={icon} size={15} />
@@ -62,7 +74,13 @@ export function RoomRow({
           donc une commande à part, discrète, révélée au survol (toujours visible au
           doigt — un survol n'existe pas, et une action invisible non plus). */}
       <span className="room-row__aside">
-        {room.here ? (
+        {joining ? (
+          /* Toujours visible, contrairement au chevron : c'est le seul signe que le
+             clic a été pris pendant que l'accusé du serveur se fait attendre. */
+          <span className="room-row__go room-row__go--busy spin" role="status" aria-label="Entrée en cours">
+            <Icon name="clock" size={15} />
+          </span>
+        ) : room.here ? (
           <button
             className="room-row__more"
             onClick={onLeave}

@@ -1549,6 +1549,13 @@ button.quote:hover {
     opacity: 1;
   }
 }
+/* Entrée en cours. Échappe à l'effacement au repos ci-dessus : un chevron est une
+   invitation, qu'on peut ne montrer qu'au survol, mais une attente est un compte
+   rendu — la masquer laisserait croire que le clic n'a pas été pris. */
+.room-row .room-row__go--busy {
+  opacity: 1;
+  color: var(--color-blue);
+}
 
 /* ---- Ligne de présent, dans le panneau des présents -------------------- */
 /* Même idiome que la sortie de salon ci-dessus : les commandes vivent dans un rail

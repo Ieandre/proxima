@@ -43,6 +43,30 @@ async function client() {
   return c;
 }
 
+/**
+ * Attend une composition de `roomId` qui satisfait `pred`.
+ *
+ * Filtrer sur le salon est indispensable : tous les clients de ces tests arrivent
+ * de Paris, donc partagent aussi le salon de région, qui diffuse sa propre
+ * composition à chaque arrivée. Attendre sur le prédicat plutôt que sur « la
+ * prochaine » évite en plus la course avec la diffusion déjà partie.
+ */
+function onceMembers(socket, roomId, pred, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('room:members', handler);
+      reject(new Error(`Timeout en attente de la composition de « ${roomId} »`));
+    }, timeoutMs);
+    function handler(payload) {
+      if (payload.roomId !== roomId || !pred(payload.members)) return;
+      clearTimeout(timer);
+      socket.off('room:members', handler);
+      resolve(payload);
+    }
+    socket.on('room:members', handler);
+  });
+}
+
 describe('E2E — identification & présence', () => {
   test('deux clients voisins se découvrent en temps réel', async () => {
     const a = await client();
@@ -110,13 +134,17 @@ describe('E2E — salons publics', () => {
     const member = await client();
     await identify(member, { pseudo: 'Bob', pub: 'PUB_BOB' });
 
-    // Le propriétaire reçoit le message système d'arrivée.
-    const sysOnOwner = once(owner, 'room:system');
+    // Aucune annonce d'arrivée n'est diffusée : c'est la composition qui porte la
+    // présence, et le propriétaire y voit le nouvel arrivant.
+    const sysOnOwner = [];
+    owner.on('room:system', (m) => m.roomId === roomId && sysOnOwner.push(m));
+    const twoUp = onceMembers(owner, roomId, (m) => m.length === 2);
     const joinAck = await rpc(member, 'room:join', { roomId });
     assert.equal(joinAck.ok, true);
     assert.equal(joinAck.owner, ackOwner.me.id);
-    const sys = await sysOnOwner;
-    assert.match(sys.text, /est entré·e/);
+    const comp = await twoUp;
+    assert.ok(comp.members.some((m) => m.pseudo === 'Bob'));
+    assert.deepEqual(sysOnOwner, [], 'entrer ne dit rien aux présents');
 
     // Un message du membre est diffusé au propriétaire, avec un id serveur.
     const msgOnOwner = once(owner, 'room:message');
@@ -125,6 +153,36 @@ describe('E2E — salons publics', () => {
     assert.equal(msg.text, 'bonjour à tous');
     assert.equal(msg.kind, 'text');
     assert.ok(msg.id, 'id de message généré côté serveur');
+  });
+
+  test('sortie : muette pour qui n\'a fait que passer, annoncée pour qui a parlé', async () => {
+    const owner = await client();
+    await identify(owner, { pseudo: 'Alice' });
+    const create = await rpc(owner, 'room:create', { name: 'Passage E2E', type: 'public' });
+    const roomId = create.room.id;
+
+    const sysOnOwner = [];
+    owner.on('room:system', (m) => m.roomId === roomId && sysOnOwner.push(m));
+
+    // Un premier visiteur entre, ne dit rien, repart.
+    const muet = await client();
+    await identify(muet, { pseudo: 'Bob', pub: 'PUB_BOB' });
+    await rpc(muet, 'room:join', { roomId });
+    const seul = onceMembers(owner, roomId, (m) => m.length === 1);
+    muet.emit('room:leave', { roomId });
+    await seul;
+    assert.deepEqual(sysOnOwner, [], 'passer sans parler ne laisse aucune trace');
+
+    // Un second parle avant de partir : là, le salon est prévenu.
+    const bavard = await client();
+    await identify(bavard, { pseudo: 'Carol', pub: 'PUB_CAROL' });
+    await rpc(bavard, 'room:join', { roomId });
+    const echo = once(owner, 'room:message');
+    bavard.emit('room:message', { roomId, text: 'je repasse plus tard' });
+    await echo;
+    const adieu = once(owner, 'room:system');
+    bavard.emit('room:leave', { roomId });
+    assert.match((await adieu).text, /Carol est sorti·e/);
   });
 
   test('gouvernance : le propriétaire exclut un membre (room:kicked reçu)', async () => {
