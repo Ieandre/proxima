@@ -12,7 +12,7 @@ import { type JoinedRoom, type Message, type ReportReason } from '../../lib/type
 import { Composer } from '../chat/Composer';
 import { RoomCard } from '../rooms/RoomCard';
 import { Avatar, Icon, Modal } from '../ui';
-import { EmptyState, BackBar, ThreadStart, TypingIndicator , replyDraft} from './shared';
+import { EmptyState, BackBar, ThreadSheet, ThreadStart, TypingIndicator , replyDraft} from './shared';
 import { MembersPanel } from './Members';
 import { MessageList } from './MessageList';
 
@@ -170,7 +170,7 @@ export function RoomView({ roomId }: { roomId: string }) {
 
       <div className="relative flex min-h-0 flex-1">
         {/* Zone de conversation (rétrécit en largeur, jamais en hauteur, quand le panneau est ouvert). */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <ThreadSheet>
           <MessageList
             messages={messages}
             showNames
@@ -203,7 +203,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             // On ne se propose pas à soi-même : s'interpeller n'apprend rien à personne.
             mentionables={room.members.filter((m) => m.id !== me.id)}
           />
-        </div>
+        </ThreadSheet>
 
         {/* Liste des membres : colonne latérale (desktop) ou panneau glissant (mobile). */}
         <MembersPanel

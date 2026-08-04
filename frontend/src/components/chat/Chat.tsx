@@ -80,7 +80,7 @@ export function Chat() {
       {/* L'identité de session vit dans le pied du panneau de gauche, avec son empreinte
           et son avertissement d'éphémérité. La répéter ici l'affichait deux fois à
           l'identique sur le même écran (trois avec la liste des présents). */}
-      <TopBar column="full" sticky={false}>
+      <TopBar column="app" sticky={false}>
         <a
           href="#en-savoir-plus"
           className="btn btn-ghost px-3"
@@ -103,7 +103,7 @@ export function Chat() {
           donc la page, et l'écran devient scrollable latéralement sur mobile. Le
           plancher à 0 rend la colonne maîtresse de sa largeur, à charge pour le
           contenu de se tronquer ou de défiler chez lui (cf. `.invite-url__text`). */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[clamp(280px,26vw,340px)_minmax(0,1fr)]">
+      <div className="app-shell grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[clamp(280px,26vw,340px)_minmax(0,1fr)]">
         <div className={`min-h-0 border-r border-line ${active ? 'hidden md:block' : 'block'}`}>
           <Sidebar />
         </div>

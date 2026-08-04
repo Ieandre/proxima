@@ -56,6 +56,23 @@
 
   --radius-card: 22px;
   --radius-field: 14px;
+
+  /* Largeur de la surface de lecture d'un fil (cf. `.thread-sheet`). L'alignement
+     gauche/droite fait grandir l'écart entre les bulles avec le panneau : sur un
+     écran large, chaque tour de parole imposait un aller-retour du regard de plus
+     de 2 000 px. Ce plafond le borne, quelle que soit la diagonale. */
+  --thread-max: 63rem;
+  /* En clair, l'écart papier/carte est d'un pour cent : ce sont les filets latéraux
+     qui portent la limite de la feuille, la teinte ne fait que l'appuyer. */
+  --thread-surface: var(--color-card);
+
+  /* Largeur du cadre de l'app (cf. `.app-shell`). Somme du contenu réel — 340 de
+     barre latérale + 63rem de fil + 256 de « Présents » = 1 604 px — plus 2 × 158 px
+     de gouttière, sans quoi la feuille viendrait buter contre ses deux voisines et
+     cesserait de se lire comme un objet. Au-delà, l'écran n'a rien à montrer de plus :
+     un chat de proximité n'a pas de troisième panneau, et en inventer un pour occuper
+     la place serait un défaut pire que la place vide. */
+  --app-max: 120rem;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -123,6 +140,10 @@
   --color-paper: #080d17;
   --color-paper-2: #141d2c;
   --color-card: #1b2433;
+  /* Feuille de lecture sans teinte propre en sombre : l'écart papier/carte, ténu en
+     clair, devient ici un bloc gris plus clair au milieu du noir — un panneau qu'on
+     n'a pas demandé. Les filets latéraux suffisent à porter la limite. */
+  --thread-surface: var(--color-paper);
   --color-ink: #e8edf5; /* et non du blanc pur : il éblouit et bave sur fond noir */
   --color-muted: #9aa8bd;
   --color-faint: #6c7c94;
@@ -628,6 +649,52 @@ h1 {
      reste pleine et conserve son contraste AA (un voile uniforme le ferait tomber
      sous 4,5:1 en éclaircissant le fond). */
   background: linear-gradient(150deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0) 46%);
+}
+
+/* Cadre de l'app sur écran très large. Le fil ne peut pas être borné seul : sur un
+   ultra-large, il restait 918 px de vide de chaque côté de la feuille, et aucune
+   largeur de fil n'y changeait rien — l'élargir aurait rendu au regard l'aller-retour
+   qu'on venait de lui épargner. C'est donc le cadre qui cède.
+   Deux filets, ni teinte ni ombre : la structure de cette interface se dit partout
+   ailleurs par des filets d'un pixel, et une teinte extérieure ne pourrait pas être
+   juste dans les deux thèmes — plus sombre que le fond en clair, elle deviendrait plus
+   claire que lui en sombre, et l'app se lirait comme un creux plutôt qu'un objet.
+   Le filet est le seul des deux qui ne s'inverse pas. */
+@media (min-width: 120rem) {
+  .app-shell {
+    /* `width` explicite : le cadre est un élément flex dans une colonne, et une marge
+       automatique sur l'axe horizontal y annule l'étirement. Sans cette ligne, la
+       grille retombe sur sa largeur intrinsèque — le panneau se contracte et le fil
+       se retrouve étranglé au milieu de l'écran. */
+    width: 100%;
+    max-width: var(--app-max);
+    margin-inline: auto;
+    border-inline: 1px solid var(--color-line);
+  }
+}
+
+/* Surface de lecture d'un fil : bornée en largeur et centrée dans le panneau, elle
+   porte messages, indicateur de saisie et champ de saisie d'un seul tenant.
+   Elle ne s'active que là où elle a la place de se lire comme une feuille posée sur
+   un plan : 96rem = 340px de panneau latéral + 63rem de fil + 2 × 94px de marge. En
+   dessous, le fil occupe toute la largeur comme avant — un liseré à 20px du bord se
+   lirait comme un défaut d'alignement, pas comme une intention. */
+@media (min-width: 96rem) {
+  .thread-sheet {
+    width: 100%;
+    max-width: var(--thread-max);
+    margin-inline: auto;
+    background: var(--thread-surface);
+    /* Filets latéraux seulement : la feuille est bornée en largeur, jamais en
+       hauteur — elle descend du bandeau de titre jusqu'au bas du panneau. */
+    border-inline: 1px solid var(--color-line);
+  }
+  /* Le champ de saisie appartient à la feuille et en prend donc la surface. Sa teinte
+     propre (`bg-card`) tenait tant qu'il barrait tout le panneau ; bornée à la feuille,
+     elle en ferait un bloc rapporté. Son filet supérieur suffit à l'asseoir. */
+  .thread-sheet .thread-composer {
+    background: var(--thread-surface);
+  }
 }
 
 /* Bulles de message : remplissage franc, sans bordure, coins généreux. */
@@ -1876,6 +1943,12 @@ button.quote:hover {
    tranche — l'inverser reviendrait à ne rien écrire. */
 .topbar__rail--text {
   padding-inline: 1.25rem;
+}
+/* Chat : la barre suit le cadre de l'app, sinon la marque resterait collée au bord de
+   l'écran pendant que le corps se recentre — le logo tomberait à 760 px du panneau
+   qu'il est censé coiffer. Le bandeau, lui, reste pleine largeur : c'est du châssis. */
+.topbar__rail--app {
+  max-width: var(--app-max);
 }
 
 .topbar__brand {

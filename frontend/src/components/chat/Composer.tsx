@@ -82,7 +82,7 @@ export function Composer({
   }
 
   return (
-    <div className="relative border-t border-line bg-card px-3 py-3 sm:px-4">
+    <div className="thread-composer relative border-t border-line bg-card px-3 py-3 sm:px-4">
       {open && (
         <ul className="mention-list fade-up" role="listbox" aria-label="Personnes à mentionner">
           {suggestions.map((m, i) => (

@@ -5,7 +5,7 @@ import { safetyNumber } from '../../lib/crypto';
 import { GENDER_LABEL, type Message, type ReportReason } from '../../lib/types';
 import { Composer } from '../chat/Composer';
 import { Avatar, Icon } from '../ui';
-import { BackBar, ThreadStart, TypingIndicator , replyDraft} from './shared';
+import { BackBar, ThreadSheet, ThreadStart, TypingIndicator , replyDraft} from './shared';
 import { MessageList } from './MessageList';
 
 
@@ -82,34 +82,36 @@ export function PMView({ peerId }: { peerId: string }) {
         </div>
       )}
 
-      <MessageList
-        messages={messages}
-        showNames={false}
-        onReport={onReport}
-        onReply={setReplyTo}
-        empty={
-          <ThreadStart title={`Votre conversation avec ${peer?.pseudo || 'cette personne'} commence ici.`}>
-            Chaque message est chiffré sur votre appareil&nbsp;: le serveur transporte un bloc qu'il ne peut pas
-            ouvrir. Pour être sûr·e de parler à la bonne personne, comparez l'empreinte de sécurité.
-          </ThreadStart>
-        }
-      />
+      <ThreadSheet>
+        <MessageList
+          messages={messages}
+          showNames={false}
+          onReport={onReport}
+          onReply={setReplyTo}
+          empty={
+            <ThreadStart title={`Votre conversation avec ${peer?.pseudo || 'cette personne'} commence ici.`}>
+              Chaque message est chiffré sur votre appareil&nbsp;: le serveur transporte un bloc qu'il ne peut pas
+              ouvrir. Pour être sûr·e de parler à la bonne personne, comparez l'empreinte de sécurité.
+            </ThreadStart>
+          }
+        />
 
-      <TypingIndicator convKey={`pm:${peerId}`} />
-      <Composer
-        placeholder={`Message chiffré à ${peer?.pseudo || '…'}`}
-        onSend={(t) => {
-          sendPM(peerId, t, replyTo?.msgId);
-          setReplyTo(null);
-        }}
-        onTyping={() => sendTyping('pm', peerId)}
-        onMedia={(f) => {
-          sendPMMedia(peerId, f, replyTo?.msgId);
-          setReplyTo(null);
-        }}
-        reply={replyDraft(replyTo)}
-        onCancelReply={() => setReplyTo(null)}
-      />
+        <TypingIndicator convKey={`pm:${peerId}`} />
+        <Composer
+          placeholder={`Message chiffré à ${peer?.pseudo || '…'}`}
+          onSend={(t) => {
+            sendPM(peerId, t, replyTo?.msgId);
+            setReplyTo(null);
+          }}
+          onTyping={() => sendTyping('pm', peerId)}
+          onMedia={(f) => {
+            sendPMMedia(peerId, f, replyTo?.msgId);
+            setReplyTo(null);
+          }}
+          reply={replyDraft(replyTo)}
+          onCancelReply={() => setReplyTo(null)}
+        />
+      </ThreadSheet>
     </div>
   );
 }

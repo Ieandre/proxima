@@ -140,8 +140,8 @@ export function TopBar({
   children,
 }: {
   /** Colonne de la barre : `wide` suit l'accueil, `text` la colonne de lecture,
-   *  `full` occupe toute la largeur (le chat n'a pas de colonne). */
-  column?: 'wide' | 'text' | 'full';
+   *  `app` le cadre du chat, `full` occupe toute la largeur. */
+  column?: 'wide' | 'text' | 'app' | 'full';
   sticky?: boolean;
   /** Fourni hors de l'accueil : la marque devient le retour, comme partout sur le web. */
   onHome?: () => void;
@@ -168,7 +168,13 @@ export function TopBar({
   );
 
   const rail =
-    column === 'text' ? 'topbar__rail--text max-w-3xl' : column === 'wide' ? 'max-w-6xl' : '';
+    column === 'text'
+      ? 'topbar__rail--text max-w-3xl'
+      : column === 'wide'
+        ? 'max-w-6xl'
+        : column === 'app'
+          ? 'topbar__rail--app'
+          : '';
 
   return (
     <header className={`topbar${sticky ? ' topbar--sticky' : ''}`}>
