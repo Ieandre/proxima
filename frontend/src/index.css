@@ -897,6 +897,19 @@ button.quote:hover {
 .reply-bar--edit .reply-bar__title {
   color: var(--color-verified);
 }
+/* Pièce jointe collée : la vignette porte l'information — c'est elle qui dit ce
+   qu'on est sur le point d'envoyer —, d'où l'alignement centré sur sa hauteur. */
+.reply-bar--media {
+  align-items: center;
+}
+.reply-bar__thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--color-paper);
+}
 .reply-bar__close {
   flex: none;
   color: var(--color-faint);

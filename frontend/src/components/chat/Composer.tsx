@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { mediaFromClipboard } from '../../lib/media';
 import { applyMention, mentionQuery } from '../../lib/mentions';
 import type { RoomMember } from '../../lib/types';
 import { Avatar, Icon } from '../ui';
@@ -48,6 +49,14 @@ export function Composer({
   // Mention en cours de frappe : position du « @ » et requête saisie derrière.
   const [pending, setPending] = useState<{ start: number; query: string; caret: number } | null>(null);
   const [highlighted, setHighlighted] = useState(0);
+  /**
+   * Média collé au presse-papiers, en attente de confirmation. Le trombone envoie
+   * sur-le-champ — le choix du fichier est un geste explicite, avec son propre
+   * aperçu dans la boîte de dialogue du système. Un Cmd+V, lui, est une frappe :
+   * il peut lâcher dans un salon public une capture qu'on avait copiée pour tout
+   * autre chose. D'où cet arrêt avant envoi, propre au collage.
+   */
+  const [pasted, setPasted] = useState<{ file: File; url: string; kind: 'image' | 'video' } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // Message en cours de rédaction, mis de côté le temps d'une modification.
@@ -93,6 +102,18 @@ export function Composer({
     if (reply) areaRef.current?.focus();
   }, [reply?.id]);
 
+  // L'aperçu du collage tient par une URL d'objet : on la libère dès qu'elle est
+  // remplacée, retirée ou que le champ disparaît.
+  useEffect(() => {
+    if (!pasted) return;
+    return () => URL.revokeObjectURL(pasted.url);
+  }, [pasted]);
+
+  /** Retient le média collé, en libérant l'aperçu précédent (cf. l'effet ci-dessus). */
+  function attach(file: File) {
+    setPasted({ file, url: URL.createObjectURL(file), kind: file.type.startsWith('video/') ? 'video' : 'image' });
+  }
+
   /**
    * Entrer en modification charge le texte d'origine ; en sortir — validée ou
    * abandonnée — rend le brouillon qu'on avait en cours. Sans cette mise de côté,
@@ -112,6 +133,10 @@ export function Composer({
       return; // premier rendu, rien à charger ni à rendre
     }
     setPending(null);
+    // Un collage en attente ne survit pas au passage en modification : contrairement
+    // à un brouillon frappé, il est encore dans le presse-papiers — le recoller ne
+    // coûte qu'une frappe, alors que le mettre de côté brouillerait ce que valide Entrée.
+    setPasted(null);
     // La hauteur se règle une image plus tard : le texte qu'on vient de poser
     // n'est pas encore dans le DOM, `scrollHeight` mesurerait l'ancien.
     requestAnimationFrame(() => {
@@ -123,8 +148,14 @@ export function Composer({
 
   function send() {
     const t = text.trim();
-    if (!t) return;
-    onSend(t.slice(0, 2000));
+    if (!t && !pasted) return;
+    // Le média part avant le texte, qui le commente. Deux messages : sur le fil,
+    // une pièce jointe ne transporte pas de légende.
+    if (pasted) {
+      onMedia?.(pasted.file);
+      setPasted(null);
+    }
+    if (t) onSend(t.slice(0, 2000));
     // Une modification validée n'a pas à effacer le champ elle-même : le parent
     // referme l'édition, ce qui rend son brouillon (cf. l'effet ci-dessus).
     if (!edit) setText('');
@@ -188,6 +219,28 @@ export function Composer({
         </div>
       )}
 
+      {pasted && (
+        <div className="reply-bar reply-bar--media fade-up">
+          {pasted.kind === 'image' ? (
+            <img className="reply-bar__thumb" src={pasted.url} alt="" />
+          ) : (
+            <video className="reply-bar__thumb" src={pasted.url} muted playsInline />
+          )}
+          <div className="reply-bar__body">
+            <div className="reply-bar__title">{pasted.kind === 'image' ? 'Image collée' : 'Vidéo collée'}</div>
+            <div className="reply-bar__text">Entrée pour envoyer, Échap pour retirer.</div>
+          </div>
+          <button
+            className="reply-bar__close"
+            onClick={() => setPasted(null)}
+            aria-label="Retirer la pièce jointe collée"
+            title="Retirer la pièce jointe collée"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+
       <div className="flex items-end gap-2">
         {onMedia && (
           <>
@@ -231,6 +284,16 @@ export function Composer({
           }}
           onSelect={(e) => syncPending(e.currentTarget)}
           onBlur={() => setPending(null)}
+          onPaste={(e) => {
+            // Coller une image ne vaut que là où une pièce jointe a un sens : pas en
+            // modification, pas dans un fil qui n'en accepte pas.
+            if (!onMedia || edit) return;
+            const file = mediaFromClipboard(e.clipboardData);
+            if (!file) return;
+            // Le collage nous revient entièrement : au navigateur, plus rien à insérer.
+            e.preventDefault();
+            attach(file);
+          }}
           onKeyDown={(e) => {
             // La liste de mentions capte d'abord les touches de navigation : sans
             // cela, Entrée enverrait le message au lieu de valider le pseudo visé.
@@ -255,6 +318,10 @@ export function Composer({
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               send();
+            } else if (e.key === 'Escape' && pasted) {
+              // Le collage est le geste le plus récent : Échap le retire d'abord.
+              e.preventDefault();
+              setPasted(null);
             } else if (e.key === 'Escape' && (edit || reply)) {
               // Échap abandonne la retouche ou la réponse en cours avant de
               // fermer quoi que ce soit d'autre.
@@ -267,7 +334,7 @@ export function Composer({
         <button
           className="btn btn-primary h-[44px] px-4"
           onClick={send}
-          disabled={!text.trim()}
+          disabled={!text.trim() && !pasted}
           aria-label={edit ? 'Valider la modification' : 'Envoyer'}
         >
           <Icon name={edit ? 'check' : 'send'} size={17} />

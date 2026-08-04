@@ -472,7 +472,7 @@ toutes les **30 s**.
 - **`Chat.tsx`** : shell (header + `Sidebar` + `Conversation`), auto-jonction par lien, `quit()`.
 - **`Sidebar.tsx`** : « À proximité » (recherche/filtres genre-âge), « Salons », « Conversations privées » hors rayon, et la **carte d'identité** avec le *fingerprint* de la clé de session.
 - **`Conversation.tsx`** : `PMView` (bandeau chiffré + panneau *safety number*) / `RoomView` (badge chiffré/privé/public, liste des membres, menu partager-lien/quitter/fermer, `shareLink()`) / `EmptyState`. Sous-composants : `MessageList`, `TypingIndicator`, `MediaBubble`, `ReportModal`.
-- **`Composer.tsx`** : textarea auto-grow (≤ 2000 car.), envoi sur Enter, pièce jointe image/vidéo. Sert aussi à **retoucher** un message (`edit`) : le texte d'origine y revient, le brouillon en cours est mis de côté puis rendu à la sortie, la pièce jointe est inerte et Échap abandonne.
+- **`Composer.tsx`** : textarea auto-grow (≤ 2000 car.), envoi sur Enter, pièce jointe image/vidéo — au trombone (envoi immédiat) ou **au presse-papiers** (`mediaFromClipboard`, cf. plus bas), qui passe par un aperçu à confirmer. Sert aussi à **retoucher** un message (`edit`) : le texte d'origine y revient, le brouillon en cours est mis de côté puis rendu à la sortie, la pièce jointe est inerte et Échap abandonne.
 - **`RoomBrowser.tsx`** : onglets Parcourir/Créer (visibilité, mot de passe optionnel, case « chiffrer de bout en bout »).
 - **`About.tsx`/`AboutSchemas.tsx`** : page pédagogique avec **démo crypto live** (chiffrement/MITM en direct) et planches animées (respect `prefers-reduced-motion`).
 - **`Legal.tsx`** : pages juridiques (CGU, RGPD, DSA, mentions), contact injecté depuis `/api/legal`.
@@ -498,6 +498,16 @@ réverbération courte convolée depuis un bruit décroissant généré à la vo
 ré-encodage JPEG q. 0.85, ≤ 10 Mo) ; vidéos telles quelles (≤ 12 Mo) ; autres formats
 rejetés. `blobUrl(bytes, mime)` crée un blob local pour l'affichage. Les octets sont
 **chiffrés** avant envoi comme les textes (voir §8).
+
+`mediaFromClipboard(data)` lit un collage (`DataTransfer`) et en tire le premier
+fichier image/vidéo, **sauf si le presse-papiers contient du texte** : un copier-coller
+depuis un traitement de texte ou une page web embarque souvent une capture *en plus*
+du texte, et coller une citation ne doit pas envoyer une image à sa place. Repli sur
+`items` quand `files` est vide (Safari). Le `Composer` ne l'écoute pas en modification,
+et n'envoie pas dans la foulée : une frappe (Cmd+V) peut lâcher dans un salon public
+une capture copiée pour tout autre chose, d'où l'aperçu à confirmer — Entrée envoie,
+Échap retire. Le trombone, geste explicite avec son propre aperçu système, envoie
+toujours directement.
 
 ---
 

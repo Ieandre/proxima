@@ -8,10 +8,45 @@
 
 export type PreparedMedia = { bytes: Uint8Array; mime: string; kind: 'image' | 'video' };
 
+/**
+ * Ce que l'on lit d'un presse-papiers : sous-ensemble structurel de `DataTransfer`,
+ * pour que la règle de tri reste vérifiable hors navigateur.
+ */
+export type ClipboardLike = {
+  getData(type: string): string;
+  files?: ArrayLike<File> | null;
+  items?: ArrayLike<{ kind: string; type: string; getAsFile(): File | null }> | null;
+};
+
 const MAX_DIM = 1600;
 const MAX_VIDEO = 12 * 1024 * 1024; // 12 Mo
 const MAX_GIF = 8 * 1024 * 1024; // 8 Mo (animé : pas de redimensionnement)
 const MAX_RAW_IMAGE = 10 * 1024 * 1024;
+
+/**
+ * Média collé depuis le presse-papiers, ou `null` si le collage n'en contient pas.
+ * Le texte a la priorité absolue : un copier-coller depuis un traitement de texte,
+ * un tableur ou une page web embarque souvent une capture *en plus* du texte, et
+ * coller une citation ne doit pas envoyer une image à sa place.
+ */
+export function mediaFromClipboard(data: ClipboardLike): File | null {
+  if (data.getData('text/plain').trim()) return null;
+
+  for (const file of Array.from(data.files ?? [])) {
+    if (isSupported(file)) return file;
+  }
+  // Repli : certains navigateurs n'exposent la capture que par `items`.
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue;
+    const file = item.getAsFile();
+    if (file && isSupported(file)) return file;
+  }
+  return null;
+}
+
+function isSupported(file: File): boolean {
+  return file.type.startsWith('image/') || file.type.startsWith('video/');
+}
 
 export async function prepareMedia(file: File): Promise<PreparedMedia> {
   const type = file.type || '';

@@ -55,7 +55,7 @@ Principes directeurs :
 
 ### Messages privés (MP)
 - **Chiffrés de bout en bout** (X25519 + XSalsa20-Poly1305 via libsodium).
-- Texte et **pièces jointes** (photos / vidéos) chiffrées.
+- Texte et **pièces jointes** (photos / vidéos) chiffrées — au trombone ou **collées depuis le presse-papiers** (Ctrl/Cmd+V), avec un aperçu à confirmer avant l'envoi.
 - Indicateur « est en train d'écrire », **safety number** (empreinte de conversation) pour détecter un MITM, signalement possible.
 
 ### Salons

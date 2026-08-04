@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { blobUrl, prepareMedia } from '../src/lib/media';
+import { blobUrl, mediaFromClipboard, prepareMedia } from '../src/lib/media';
+import type { ClipboardLike } from '../src/lib/media';
 
 // Fabrique un File de taille donnée (octets nuls) et de type MIME donné.
 function fileOf(bytes: number, type: string, name = 'f'): File {
   return new File([new Uint8Array(bytes)], name, { type });
+}
+
+// Presse-papiers simulé : texte brut éventuel, fichiers, et `items` façon Safari.
+function clipboard(opts: { text?: string; files?: File[]; items?: File[] } = {}): ClipboardLike {
+  return {
+    getData: (type) => (type === 'text/plain' ? (opts.text ?? '') : ''),
+    files: opts.files ?? [],
+    items: (opts.items ?? []).map((f) => ({ kind: 'file', type: f.type, getAsFile: () => f })),
+  };
 }
 
 describe('prepareMedia', () => {
@@ -43,6 +53,52 @@ describe('prepareMedia', () => {
 
   it('format non pris en charge : rejeté', async () => {
     await expect(prepareMedia(fileOf(128, 'application/pdf', 'doc.pdf'))).rejects.toThrow(/non pris en charge/);
+  });
+});
+
+describe('mediaFromClipboard', () => {
+  it('capture d\'écran collée : le fichier image est retenu', () => {
+    const png = fileOf(64, 'image/png', 'image.png');
+    expect(mediaFromClipboard(clipboard({ files: [png] }))).toBe(png);
+  });
+
+  it('vidéo collée : retenue aussi', () => {
+    const mp4 = fileOf(64, 'video/mp4', 'clip.mp4');
+    expect(mediaFromClipboard(clipboard({ files: [mp4] }))).toBe(mp4);
+  });
+
+  it('texte enrichi (texte + capture) : le texte l\'emporte, rien n\'est joint', () => {
+    const png = fileOf(64, 'image/png', 'image.png');
+    expect(mediaFromClipboard(clipboard({ text: 'une citation', files: [png] }))).toBeNull();
+  });
+
+  it('texte seul : rien à joindre', () => {
+    expect(mediaFromClipboard(clipboard({ text: 'bonjour' }))).toBeNull();
+  });
+
+  it('texte réduit à des espaces : ne bloque pas l\'image', () => {
+    const png = fileOf(64, 'image/png', 'image.png');
+    expect(mediaFromClipboard(clipboard({ text: '  \n ', files: [png] }))).toBe(png);
+  });
+
+  it('fichier d\'un format non pris en charge : ignoré', () => {
+    expect(mediaFromClipboard(clipboard({ files: [fileOf(64, 'application/pdf', 'doc.pdf')] }))).toBeNull();
+  });
+
+  it('premier média utile parmi plusieurs fichiers', () => {
+    const gif = fileOf(64, 'image/gif', 'a.gif');
+    const files = [fileOf(64, 'text/plain', 'note.txt'), gif, fileOf(64, 'image/png', 'b.png')];
+    expect(mediaFromClipboard(clipboard({ files }))).toBe(gif);
+  });
+
+  it('repli sur `items` quand `files` est vide', () => {
+    const jpg = fileOf(64, 'image/jpeg', 'photo.jpg');
+    expect(mediaFromClipboard(clipboard({ items: [jpg] }))).toBe(jpg);
+  });
+
+  it('presse-papiers vide : rien', () => {
+    expect(mediaFromClipboard(clipboard())).toBeNull();
+    expect(mediaFromClipboard({ getData: () => '' })).toBeNull();
   });
 });
 
