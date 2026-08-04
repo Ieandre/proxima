@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { createInvite, joinRoom, refreshPresence } from '../../lib/socket';
 import { fingerprint } from '../../lib/crypto';
-import { buildRoomList, filterRooms, normalize, type RoomEntry } from '../../lib/rooms';
+import { buildRoomList, communityStart, filterRooms, normalize, type RoomEntry } from '../../lib/rooms';
 import { splitPeople } from '../../lib/people';
 import { GENDER_LABEL, type Gender } from '../../lib/types';
 import { Avatar, Icon } from '../ui';
@@ -137,6 +137,7 @@ export function Sidebar() {
     [publicRooms, joinedRooms, homeRoom],
   );
   const visibleRooms = filterRooms(rooms, { query: roomQuery, hereOnly });
+  const communityFrom = communityStart(visibleRooms);
   const hereCount = rooms.filter((r) => r.here).length;
   // Les outils accompagnent la liste dès qu'elle existe, comme la recherche de pseudos
   // au-dessus : les faire apparaître passé un seuil aurait déplacé la liste sous eux, au
@@ -330,27 +331,30 @@ export function Sidebar() {
               <p className="mb-2 px-1 text-[13px] leading-snug text-faint">Aucun salon ne correspond.</p>
             ) : (
               <ul className="mb-2 flex flex-col gap-1">
-                {visibleRooms.map((r) => (
-                  <li key={r.id}>
-                    <RoomRow
-                      room={r}
-                      open={isActive('room', r.id)}
-                      peeking={card?.id === r.id}
-                      joining={joining === r.id}
-                      unread={unread[`room:${r.id}`] || 0}
-                      mention={!!mentioned[`room:${r.id}`]}
-                      onEnter={() => enterRoom(r)}
-                      onLeave={() => setCard({ id: r.id, mode: 'leave' })}
-                    />
-                    {card?.id === r.id && (
-                      <RoomCard
+                {visibleRooms.map((r, i) => (
+                  <Fragment key={r.id}>
+                    {i === communityFrom && <li className="room-divider">Créés par la communauté</li>}
+                    <li>
+                      <RoomRow
                         room={r}
-                        mode={card.mode}
-                        onDone={() => setCard(null)}
-                        onCancel={() => setCard(null)}
+                        open={isActive('room', r.id)}
+                        peeking={card?.id === r.id}
+                        joining={joining === r.id}
+                        unread={unread[`room:${r.id}`] || 0}
+                        mention={!!mentioned[`room:${r.id}`]}
+                        onEnter={() => enterRoom(r)}
+                        onLeave={() => setCard({ id: r.id, mode: 'leave' })}
                       />
-                    )}
-                  </li>
+                      {card?.id === r.id && (
+                        <RoomCard
+                          room={r}
+                          mode={card.mode}
+                          onDone={() => setCard(null)}
+                          onCancel={() => setCard(null)}
+                        />
+                      )}
+                    </li>
+                  </Fragment>
                 ))}
               </ul>
             )}

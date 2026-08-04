@@ -1408,6 +1408,32 @@ button.quote:hover {
    1. absent  — pastille sourde, la flèche paraît au survol ;
    2. présent — un rail bleu au bord gauche ;
    3. ouvert  — la ligne se remplit de la teinte d'accent. */
+
+/* La seule frontière de cette liste : les salons permanents au-dessus, ceux que les
+   visiteurs ouvrent en dessous. Un repère pour l'œil et rien d'autre — ni chevron,
+   ni compteur, ni repli. Un groupe repliable ici cacherait la seule partie VIVANTE
+   de la liste (les permanents, eux, sont toujours là et n'ont pas à être retrouvés)
+   et entrerait en conflit avec la recherche qui la traverse. Le libellé est centré
+   plutôt qu'aligné à gauche comme les titres de section, pour ne pas se lire comme
+   un en-tête qu'on pourrait presser. */
+.room-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--color-faint);
+}
+.room-divider::before,
+.room-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-line);
+}
+
 .room-row {
   position: relative;
   display: flex;

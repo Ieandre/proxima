@@ -63,7 +63,7 @@ export function RoomRow({
           <span className="room-row__title">
             <span className="truncate">{room.name}</span>
             {room.region && <span className="room-tag room-tag--region">Votre région</span>}
-            {room.official && !room.region && <span className="room-tag">officiel</span>}
+            {room.official && !room.region && <span className="room-tag">permanent</span>}
           </span>
           <span className="room-row__meta">{meta}</span>
         </span>

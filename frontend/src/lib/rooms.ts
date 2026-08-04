@@ -47,6 +47,27 @@ function tier(e: RoomEntry): number {
 }
 
 /**
+ * Salons qui ne disparaissent jamais — la région et les permanents, soit les deux
+ * premières strates réunies. C'est la SEULE frontière que la liste rende visible,
+ * et elle l'est parce que c'est la seule propriété qu'aucun clic ne change : la
+ * séparation par « j'y suis » a été retirée précisément parce que la ligne la
+ * traversait (cf. l'en-tête de ce fichier).
+ */
+export const isPermanent = (e: RoomEntry) => e.region || e.official;
+
+/**
+ * Rang de la première ligne ouverte par un visiteur — là où poser le repère —
+ * ou `-1` quand il n'y a pas de frontière à montrer : liste sans permanent, ou
+ * sans salon de visiteur. Les strates restant contiguës (`filterRooms` préserve
+ * l'ordre), un seul index suffit ; calculé sur la liste VISIBLE, un filtre qui
+ * vide un côté emporte le repère avec lui.
+ */
+export function communityStart(entries: RoomEntry[]): number {
+  const i = entries.findIndex((e) => !isPermanent(e));
+  return i > 0 ? i : -1;
+}
+
+/**
  * Clé de tri au sein d'une strate : le nombre de présents SANS SOI.
  *
  * C'est le détail qui tient toute la promesse. Trier sur `count` brut ferait

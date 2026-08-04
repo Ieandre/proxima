@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRoomList, filterRooms, normalize } from '../src/lib/rooms';
+import { buildRoomList, communityStart, filterRooms, normalize } from '../src/lib/rooms';
 import type { JoinedRoom, RoomSummary } from '../src/lib/types';
 
 const summary = (id: string, over: Partial<RoomSummary> = {}): RoomSummary => ({
@@ -160,6 +160,57 @@ describe('filterRooms', () => {
 
   it('rend la liste entière sans critère', () => {
     expect(filterRooms(list, {})).toHaveLength(3);
+  });
+});
+
+describe('communityStart', () => {
+  const list = (over: Partial<RoomSummary>[] = [], homeRoom = null as null | { id: string; name: string }) =>
+    buildRoomList({
+      publicRooms: over.map((o, i) => summary(o.id || `s${i}`, o)),
+      joinedRooms: {},
+      homeRoom,
+    });
+
+  it('pointe la première ligne non permanente', () => {
+    const rooms = list([
+      { id: 'o1', persistent: true },
+      { id: 'o2', persistent: true },
+      { id: 'a' },
+      { id: 'b' },
+    ]);
+    expect(communityStart(rooms)).toBe(2);
+    expect(rooms[2].id).toBe('a');
+  });
+
+  it('compte le salon de région parmi les permanents', () => {
+    const rooms = list([{ id: 'a' }], { id: 'rgn-fr-11', name: 'Île-de-France' });
+    expect(communityStart(rooms)).toBe(1);
+  });
+
+  /* Pas de frontière à montrer quand un seul des deux côtés existe : le repère
+     n'aurait rien à séparer, et il annoncerait un groupe vide. */
+  it('rend -1 sans aucun salon permanent', () => {
+    expect(communityStart(list([{ id: 'a' }, { id: 'b' }]))).toBe(-1);
+  });
+
+  it('rend -1 sans aucun salon de visiteur', () => {
+    expect(communityStart(list([{ id: 'o', persistent: true }]))).toBe(-1);
+  });
+
+  it('rend -1 sur une liste vide', () => {
+    expect(communityStart([])).toBe(-1);
+  });
+
+  /* Le repère se calcule sur la liste visible : un filtre qui ne laisse qu'un côté
+     l'emporte avec lui, sans que la vue ait à s'en occuper. */
+  it("suit le filtre qui vide l'un des deux côtés", () => {
+    const rooms = list([
+      { id: 'o', name: 'Général', persistent: true },
+      { id: 'a', name: 'Soirée à Metz' },
+    ]);
+    expect(communityStart(rooms)).toBe(1);
+    expect(communityStart(filterRooms(rooms, { query: 'metz' }))).toBe(-1);
+    expect(communityStart(filterRooms(rooms, { query: 'général' }))).toBe(-1);
   });
 });
 
