@@ -12,9 +12,12 @@ import {
   encryptRoomBytes,
   exportPublicKey,
   fingerprint,
+  genGroupKey,
   genRoomSalt,
   initCrypto,
   safetyNumber,
+  unwrapGroupKey,
+  wrapGroupKey,
   type Envelope,
 } from '../src/lib/crypto';
 
@@ -161,5 +164,63 @@ describe('crypto salons chiffrés (Argon2id + crypto_secretbox)', () => {
     const bytes = new Uint8Array([9, 8, 7, 255, 0, 1]);
     const { nonce, cipher } = encryptRoomBytes(key, bytes);
     expect(Array.from(decryptRoomBytes(key, nonce, cipher))).toEqual(Array.from(bytes));
+  });
+});
+
+describe('clé de groupe des salons publics', () => {
+  it('engendre une clé secretbox de la bonne taille, jamais deux fois la même', () => {
+    const a = genGroupKey();
+    const b = genGroupKey();
+    expect(a.length).toBe(sodium.crypto_secretbox_KEYBYTES);
+    expect(Array.from(a)).not.toEqual(Array.from(b));
+  });
+
+  it('aller-retour : la clé enveloppée pour un membre est rendue à l’identique', () => {
+    // Enveloppée pour NOTRE propre clé publique : `unwrapGroupKey` déchiffre avec la clé
+    // privée de session, exactement comme le ferait le membre destinataire.
+    const key = genGroupKey();
+    const env = wrapGroupKey(exportPublicKey(), key);
+    expect(Array.from(unwrapGroupKey(env))).toEqual(Array.from(key));
+  });
+
+  it('l’enveloppe ne contient la clé en clair sous aucune forme', () => {
+    const key = genGroupKey();
+    const env = wrapGroupKey(exportPublicKey(), key);
+    const B64 = sodium.base64_variants.URLSAFE_NO_PADDING;
+    expect(env.c).not.toContain(sodium.to_base64(key, B64));
+  });
+
+  it('une enveloppe scellée pour QUELQU’UN D’AUTRE est rejetée', () => {
+    const peer = makePeer();
+    const env = wrapGroupKey(peer.pub, genGroupKey());
+    // `env.pub` est notre clé publique ; seul `peer` détient la privée qui l'ouvre.
+    expect(() => unwrapGroupKey(env)).toThrow();
+  });
+
+  it('une enveloppe altérée est rejetée (MAC invalide)', () => {
+    const env = wrapGroupKey(exportPublicKey(), genGroupKey());
+    const broken: Envelope = { ...env, c: env.c.slice(0, -2) + (env.c.endsWith('A') ? 'BB' : 'AA') };
+    expect(() => unwrapGroupKey(broken)).toThrow();
+  });
+
+  it('une enveloppe valide qui ne contient PAS une clé de la bonne taille est rejetée', () => {
+    // Sans cette vérification, tout le fil deviendrait silencieusement illisible.
+    const env = wrapGroupKey(exportPublicKey(), new Uint8Array(8));
+    expect(() => unwrapGroupKey(env)).toThrow(/taille/);
+  });
+
+  it('la clé de groupe chiffre le fil comme n’importe quelle clé de salon', () => {
+    // `encryptRoom`/`decryptRoom` ignorent l'origine de la clé : c'est ce qui permet au
+    // régime de groupe de réutiliser tout le transport du régime mot de passe.
+    const key = genGroupKey();
+    const text = 'salon public chiffré — accents : éàü';
+    expect(decryptRoom(key, encryptRoom(key, text))).toBe(text);
+  });
+
+  it('deux générations de clé ne se lisent pas l’une l’autre', () => {
+    const first = genGroupKey();
+    const second = genGroupKey();
+    const env = encryptRoom(first, 'ancienne génération');
+    expect(() => decryptRoom(second, env)).toThrow();
   });
 });

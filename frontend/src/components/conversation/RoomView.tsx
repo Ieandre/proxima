@@ -68,7 +68,15 @@ export function RoomView({ roomId }: { roomId: string }) {
   }
 
   function shareLink() {
-    if (room?.encrypted) {
+    // Un salon PUBLIC se partage par son seul identifiant : il n'a ni mot de passe à
+    // joindre ni invitation à réserver au créateur — sa clé lui sera remise à l'entrée.
+    // Le critère est le TYPE, pas le régime de clé : un salon privé sur invitation est
+    // en régime de groupe lui aussi, mais son lien doit porter le jeton.
+    if (room && room.type !== 'private') {
+      copyText(`${window.location.origin}/?r=${room.id}`, 'Lien du salon copié.');
+      return;
+    }
+    if (room?.keyMode === 'password') {
       // Lien tout-en-un : le mot de passe voyage dans le fragment `#p=` (jamais envoyé au serveur).
       if (!roomPassword) {
         showToast('Ressaisissez le mot de passe pour générer le lien.', 'warn');
@@ -99,21 +107,26 @@ export function RoomView({ roomId }: { roomId: string }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="thread-title truncate">{room.name}</h2>
-            {room.encrypted ? (
+            {/* Deux étiquettes, parce qu'elles ne disent plus la même chose : la nature du
+                salon (qui peut y entrer) et son chiffrement (qui peut le lire). Tous les
+                salons étant chiffrés, garder la seule mention « chiffré » aurait effacé
+                la première — or c'est elle qui change quelque chose au geste suivant.
+                Pas de second « # » : le bloc d'icône à gauche du nom le porte déjà. */}
+            <span className={`chip ${room.type === 'private' ? '' : 'chip-blue'}`}>
+              {room.type === 'private' && <Icon name="lock" size={10} />}
+              {room.type === 'private' ? 'privé' : 'public'}
+            </span>
+            {room.encrypted && (
               <span
                 className="chip chip-verified"
-                title="Chiffré de bout en bout — confidentialité de groupe (l'auteur d'un message n'est pas authentifié)"
+                title={
+                  room.keyMode === 'password'
+                    ? 'Chiffré de bout en bout — clé dérivée du mot de passe, jamais transmise au serveur'
+                    : 'Chiffré de bout en bout — l’hébergeur ne peut pas lire ce salon ; toute personne qui y entre en reçoit la clé'
+                }
               >
                 <Icon name="lock" size={10} />
                 chiffré
-              </span>
-            ) : (
-              // Pas de second « # » ici : le bloc d'icône à gauche du nom le porte déjà.
-              // Le cadenas de « privé », lui, ajoute une information que le mot seul ne
-              // donne pas d'un coup d'œil.
-              <span className={`chip ${room.type === 'private' ? '' : 'chip-blue'}`}>
-                {room.type === 'private' && <Icon name="lock" size={10} />}
-                {room.type === 'private' ? 'privé' : 'public'}
               </span>
             )}
           </div>
@@ -132,7 +145,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
               <div className="panel absolute right-0 z-20 mt-1.5 w-52 overflow-hidden p-1.5 text-sm">
-                {room.encrypted ? (
+                {room.keyMode === 'password' ? (
                   <>
                     <MenuItem icon="key" label="Copier le lien d'accès" onClick={shareLink} />
                     {roomPassword && (
@@ -145,7 +158,11 @@ export function RoomView({ roomId }: { roomId: string }) {
                   </>
                 ) : (
                   <>
-                    {isOwner && room.invite && <MenuItem icon="key" label="Partager le lien" onClick={shareLink} />}
+                    {/* Salon public : le lien n'est réservé à personne. Salon privé sur
+                        invitation : le jeton reste au créateur, c'est lui qui tient la porte. */}
+                    {(room.type !== 'private' || (isOwner && room.invite)) && (
+                      <MenuItem icon="key" label="Partager le lien" onClick={shareLink} />
+                    )}
                     {isOwner && room.type === 'private' && (
                       <MenuItem icon="lock" label="Mot de passe" onClick={() => { setPwdModal(true); setMenu(false); }} />
                     )}
@@ -252,6 +269,7 @@ export function RoomView({ roomId }: { roomId: string }) {
             region: roomId === homeRoom?.id,
             official: !!listed?.persistent,
             encrypted: !!room.encrypted,
+            locked: room.keyMode === 'password',
             private: room.type === 'private',
             count: room.members.length,
             // RG-05 : un salon éphémère laissé vide disparaît — jamais un permanent.

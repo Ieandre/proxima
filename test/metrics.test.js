@@ -23,7 +23,7 @@ test('snapshot : compte les sessions présentes (index GEO)', async () => {
   assert.equal(snap.sessions, 2);
 });
 
-test('snapshot : agrège les salons publics (total, membres, chiffrés, permanents)', async () => {
+test('snapshot : agrège les salons publics (total, membres, régime mot de passe, permanents)', async () => {
   await rooms.createRoom({ name: 'Public A', type: 'public', ownerId: 'o1' }); // 1 membre (owner)
   await rooms.createRoom({
     name: 'Chiffré B', type: 'public', ownerId: 'o2', encrypted: true, verifier: 'v', salt: 'sel',
@@ -33,20 +33,19 @@ test('snapshot : agrège les salons publics (total, membres, chiffrés, permanen
   const snap = await metrics.snapshot();
   assert.equal(snap.rooms.total, 3);
   assert.equal(snap.rooms.members, 2); // 1 + 1 + 0
-  assert.equal(snap.rooms.encrypted, 1);
+  // Tous les salons sont chiffrés : seul le régime à mot de passe se compte encore.
+  assert.equal(snap.rooms.password, 1);
   assert.equal(snap.rooms.permanent, 1);
 });
 
-test('snapshot : agrège les signalements (total, prioritaires, filtre auto, par motif)', async () => {
+test('snapshot : agrège les signalements (total, prioritaires, par motif)', async () => {
   await moderation.createReport({ scope: 'room', messageId: 'm1', reporterId: 'r1', reason: 'minor' });
   await moderation.createReport({ scope: 'room', messageId: 'm2', reporterId: 'r2', reason: 'illegal' });
   await moderation.createReport({ scope: 'room', messageId: 'm3', reporterId: 'r3', reason: 'harassment' });
-  await moderation.createReport({ scope: 'room', messageId: 'm4', reason: 'spam', source: 'filter' });
 
   const snap = await metrics.snapshot();
-  assert.equal(snap.reports.total, 4);
+  assert.equal(snap.reports.total, 3);
   assert.equal(snap.reports.priority, 2); // minor + illegal
-  assert.equal(snap.reports.auto, 1); // source filter
   assert.equal(snap.reports.byReason.minor, 1);
   assert.equal(snap.reports.byReason.harassment, 1);
 });

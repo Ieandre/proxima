@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { convKey, useStore } from '../store/useStore';
-import type { JoinedRoom, Person, RoomMember, RoomSummary } from './types';
+import type { JoinedRoom, Person, RoomKeyMode, RoomMember, RoomSummary } from './types';
 import {
   decryptBytes,
   decryptFrom,
@@ -12,8 +12,11 @@ import {
   encryptRoom,
   encryptRoomBytes,
   exportPublicKey,
+  genGroupKey,
   genRoomSalt,
   initCrypto,
+  unwrapGroupKey,
+  wrapGroupKey,
   type Envelope,
   type RoomEnvelope,
 } from './crypto';
@@ -53,6 +56,206 @@ function flagMention(roomId: string, text: string, fromPseudo: string, mine: boo
     s().showToast(`${fromPseudo} vous a mentionné·e dans ${room ? room.name : 'un salon'}.`);
   }
   return true;
+}
+
+// --- Clé de groupe des salons publics --------------------------------------
+//
+// Un salon public est chiffré sans mot de passe : sa clé circule de membre à membre.
+// Entrer dans un salon actif ouvre donc une fenêtre — courte, mais réelle — où l'on
+// reçoit des messages avant de pouvoir les lire. Tout ce qui suit sert à traverser
+// cette fenêtre sans perdre de messages ni afficher de faux « illisible ».
+
+type RoomMessageIn = {
+  id?: string;
+  roomId: string;
+  fromId: string;
+  fromPseudo: string;
+  kind?: string;
+  mime?: string;
+  media?: string;
+  data?: ArrayBuffer;
+  enc?: string;
+  ke?: number; // génération de la clé qui scelle l'enveloppe
+  // Ni `text` ni `replyTo` : aucun salon ne circule en clair, le texte comme la
+  // référence de réponse sont scellés dans l'enveloppe (cf. `lib/body.ts`).
+  env?: RoomEnvelope & { body?: RoomEnvelope };
+};
+
+/**
+ * Messages en attente de clé, par salon. RAM seule, jamais persisté (RG-01/02), oublié
+ * à la sortie. Borné : un salon très actif ne doit pas faire enfler la mémoire en
+ * attendant une clé qui pourrait ne jamais venir.
+ */
+const PENDING_MAX = 60;
+const pending = new Map<string, RoomMessageIn[]>();
+
+/** Époque déjà réclamée, par salon — évite de redemander la même à chaque message. */
+const keyAsked = new Map<string, number>();
+
+/** Délai avant de redemander la clé quand aucun porteur n'a répondu à l'entrée. */
+const GROUP_KEY_RETRY_MS = 2500;
+
+/**
+ * Vrai si ce message relève d'un salon en régime de groupe dont nous n'avons pas la
+ * clé — soit aucune, soit une génération antérieure à celle qui le scelle. En régime
+ * mot de passe il n'y a rien à réclamer à personne : la clé se dérive, elle ne se
+ * transmet pas.
+ */
+function needsGroupKey(roomId: string, epoch?: number): boolean {
+  if (s().joinedRooms[roomId]?.keyMode !== 'group') return false;
+  if (!s().roomKeys[roomId]) return true;
+  return (epoch || 0) > (s().roomKeyEpochs[roomId] || 0);
+}
+
+function bufferUntilKey(roomId: string, m: RoomMessageIn): void {
+  const list = pending.get(roomId) || [];
+  list.push(m);
+  // Au-delà du plafond, le plus ancien est rendu tel quel : il s'affichera illisible,
+  // ce qui est plus honnête que de le faire disparaître sans trace.
+  while (list.length > PENDING_MAX) handleRoomMessage(list.shift()!, true);
+  pending.set(roomId, list);
+}
+
+/** Rejoue les messages mis de côté, dans leur ordre d'arrivée. */
+function flushPending(roomId: string): void {
+  const list = pending.get(roomId);
+  if (!list) return;
+  pending.delete(roomId);
+  for (const m of list) handleRoomMessage(m, true);
+}
+
+/** Oublie ce qui attendait pour ce salon (sortie, fermeture). */
+function forgetPending(roomId: string): void {
+  pending.delete(roomId);
+  keyAsked.delete(roomId);
+}
+
+/**
+ * Réclame la clé aux membres. Le serveur peut répondre en nous DÉSIGNANT pour engendrer
+ * une nouvelle génération, s'il constate que plus personne ne détient l'ancienne.
+ */
+function requestGroupKey(roomId: string, epoch: number): void {
+  if ((keyAsked.get(roomId) ?? -1) >= epoch) return;
+  keyAsked.set(roomId, epoch);
+  socket?.emit('room:key:need', { roomId }, (res: { ok?: boolean; genesis?: boolean; keyEpoch?: number }) => {
+    if (res?.ok && res.genesis) adoptGenesisKey(roomId, res.keyEpoch || 1);
+  });
+}
+
+/** Engendre la clé : nous sommes le seul membre, personne ne peut nous la donner. */
+function adoptGenesisKey(roomId: string, epoch: number): void {
+  s().setGroupKey(roomId, genGroupKey(), epoch);
+  keyAsked.delete(roomId);
+  flushPending(roomId);
+}
+
+/**
+ * Filet pour un salon SILENCIEUX : si aucun porteur ne répond et qu'aucun message
+ * n'arrive pour déclencher une réclamation, rien ne se passerait. On redemande donc une
+ * fois, passé un court délai.
+ */
+function scheduleGroupKeyRetry(roomId: string, epoch: number): void {
+  setTimeout(() => {
+    if (s().roomKeys[roomId] || !s().joinedRooms[roomId]) return;
+    keyAsked.delete(roomId);
+    requestGroupKey(roomId, epoch);
+  }, GROUP_KEY_RETRY_MS);
+}
+
+/**
+ * Génération de la clé dont on scelle un message. Elle voyage avec lui : sans elle, un
+ * membre resté sur une génération antérieure croirait à un message corrompu au lieu de
+ * comprendre qu'il lui manque une clé. Vaut 0 en régime mot de passe.
+ */
+function sendingEpoch(roomId: string): number {
+  return s().roomKeyEpochs[roomId] || 0;
+}
+
+/**
+ * Adopte le régime de clé d'un salon qu'on vient de créer ou de rejoindre. `genesis`
+ * dit que personne ne peut nous servir la clé ; sinon des porteurs ont été sollicités
+ * par le serveur, et leur remise arrivera par `room:key:deliver`.
+ */
+function settleGroupKey(room: JoinedRoom, ack: { genesis?: boolean; keyEpoch?: number }): void {
+  if (room.keyMode !== 'group') return;
+  const epoch = ack.keyEpoch || room.keyEpoch || 1;
+  if (ack.genesis) adoptGenesisKey(room.id, epoch);
+  else scheduleGroupKeyRetry(room.id, epoch);
+}
+
+/**
+ * Réception d'un message de salon. Extraite en fonction nommée pour pouvoir être
+ * REJOUÉE : dans un salon public, le fil ne s'interrompt pas le temps que la clé nous
+ * parvienne, et ces messages-là doivent pouvoir s'afficher après coup. `replayed`
+ * marque ce second passage — il interdit une nouvelle mise en attente.
+ */
+function handleRoomMessage(m: RoomMessageIn, replayed = false): void {
+  const me = s().me;
+  const base = {
+    msgId: m.id,
+    kind: (me && m.fromId === me.id ? 'me' : 'them') as 'me' | 'them',
+    fromId: m.fromId,
+    fromPseudo: m.fromPseudo,
+    ts: now(),
+  };
+  // Tout message de salon arrive chiffré : déchiffrement local avec la clé en RAM. Échec
+  // ou clé absente -> bulle « illisible » PAR MESSAGE, sans casser le fil (modèle pm:recv).
+  const key = s().roomKeys[m.roomId];
+  /**
+   * Salon en régime de groupe dont la clé n'est pas (encore) là : on met le message de
+   * côté et on la réclame, plutôt que d'afficher un « illisible » que la seconde
+   * suivante démentirait. Un message DÉJÀ rejoué n'est jamais remis en attente — c'est
+   * ce qui termine la boucle : au second passage, il s'affiche pour ce qu'il est.
+   */
+  if (!replayed && needsGroupKey(m.roomId, m.ke)) {
+    bufferUntilKey(m.roomId, m);
+    requestGroupKey(m.roomId, m.ke || 0);
+    return;
+  }
+  if (m.kind === 'media' && m.data) {
+    try {
+      if (!key || !m.env) throw new Error('clé absente');
+      const bytes = decryptRoomBytes(key, m.env.n, new Uint8Array(m.data));
+      const url = blobUrl(bytes, m.mime || '');
+      // La référence de réponse d'un média voyage dans un corps scellé à part
+      // (le nonce de `env` sert déjà aux octets du média — jamais réutilisé).
+      const body = m.env.body ? decodeBody(decryptRoom(key, m.env.body)) : null;
+      s().pushMessage(`room:${m.roomId}`, {
+        ...base,
+        encrypted: true,
+        text: '',
+        media: { url, mime: m.mime || '', kind: m.media === 'video' ? 'video' : 'image' },
+        replyTo: body?.replyTo,
+      });
+    } catch {
+      s().pushMessage(`room:${m.roomId}`, { ...base, encrypted: true, text: '⚠︎ média illisible' });
+    }
+  } else {
+    let text: string;
+    let replyTo: string | undefined;
+    try {
+      if (!key || !m.env) throw new Error('clé absente');
+      const body = decodeBody(decryptRoom(key, m.env));
+      text = body.text;
+      replyTo = body.replyTo;
+    } catch {
+      // Un salon en régime de groupe n'a pas de mot de passe à ressaisir : sa clé se
+      // réclame aux membres, et si elle n'est pas venue, c'est qu'aucun ne l'a servie.
+      text = key
+        ? '⚠︎ message illisible (déchiffrement impossible)'
+        : s().joinedRooms[m.roomId]?.keyMode === 'password'
+          ? '⚠︎ message illisible (clé perdue, ressaisissez le mot de passe)'
+          : '⚠︎ message illisible (clé du salon non reçue)';
+    }
+    s().pushMessage(`room:${m.roomId}`, {
+      ...base,
+      encrypted: true,
+      text,
+      replyTo,
+      mentionsMe: flagMention(m.roomId, text, m.fromPseudo, base.kind === 'me'),
+    });
+  }
+  s().clearTyping(`room:${m.roomId}`, m.fromId);
 }
 
 /**
@@ -178,94 +381,37 @@ export async function connect(): Promise<void> {
   socket.on('room:system', ({ roomId, text }: { roomId: string; text: string }) => {
     s().pushMessage(`room:${roomId}`, { kind: 'system', text, ts: now() });
   });
+  socket.on('room:message', (m: RoomMessageIn) => handleRoomMessage(m));
+  /**
+   * Un arrivant a besoin de la clé du salon : on la lui enveloppe pour SA clé publique,
+   * le serveur ne fera que la transporter. On ne répond que si l'on détient bien la
+   * génération demandée — plusieurs membres étant sollicités, il est normal que
+   * certains se taisent.
+   */
   socket.on(
-    'room:message',
-    (m: {
-      id?: string;
-      roomId: string;
-      fromId: string;
-      fromPseudo: string;
-      kind?: string;
-      text?: string;
-      mime?: string;
-      media?: string;
-      data?: ArrayBuffer;
-      enc?: string;
-      env?: RoomEnvelope & { body?: RoomEnvelope };
-      replyTo?: string;
-    }) => {
-      const me = s().me;
-      const base = {
-        msgId: m.id,
-        kind: (me && m.fromId === me.id ? 'me' : 'them') as 'me' | 'them',
-        fromId: m.fromId,
-        fromPseudo: m.fromPseudo,
-        ts: now(),
-      };
-      // Salon chiffré E2E : déchiffrement local avec la clé en RAM. Échec ou clé absente
-      // (reload) -> bulle « illisible » PAR MESSAGE, sans casser le fil (modèle pm:recv).
-      if (m.enc) {
-        const key = s().roomKeys[m.roomId];
-        if (m.kind === 'media' && m.data) {
-          try {
-            if (!key || !m.env) throw new Error('clé absente');
-            const bytes = decryptRoomBytes(key, m.env.n, new Uint8Array(m.data));
-            const url = blobUrl(bytes, m.mime || '');
-            // La référence de réponse d'un média voyage dans un corps scellé à part
-            // (le nonce de `env` sert déjà aux octets du média — jamais réutilisé).
-            const body = m.env.body ? decodeBody(decryptRoom(key, m.env.body)) : null;
-            s().pushMessage(`room:${m.roomId}`, {
-              ...base,
-              encrypted: true,
-              text: '',
-              media: { url, mime: m.mime || '', kind: m.media === 'video' ? 'video' : 'image' },
-              replyTo: body?.replyTo,
-            });
-          } catch {
-            s().pushMessage(`room:${m.roomId}`, { ...base, encrypted: true, text: '⚠︎ média illisible' });
-          }
-        } else {
-          let text: string;
-          let replyTo: string | undefined;
-          try {
-            if (!key || !m.env) throw new Error('clé absente');
-            const body = decodeBody(decryptRoom(key, m.env));
-            text = body.text;
-            replyTo = body.replyTo;
-          } catch {
-            text = key ? '⚠︎ message illisible (déchiffrement impossible)' : '⚠︎ message illisible (clé perdue, ressaisissez le mot de passe)';
-          }
-          s().pushMessage(`room:${m.roomId}`, {
-            ...base,
-            encrypted: true,
-            text,
-            replyTo,
-            mentionsMe: flagMention(m.roomId, text, m.fromPseudo, base.kind === 'me'),
-          });
-        }
-        s().clearTyping(`room:${m.roomId}`, m.fromId);
-        return;
-      }
-      if (m.kind === 'media' && m.data) {
-        const url = blobUrl(new Uint8Array(m.data), m.mime || '');
-        s().pushMessage(`room:${m.roomId}`, {
-          ...base,
-          text: '',
-          media: { url, mime: m.mime || '', kind: m.media === 'video' ? 'video' : 'image' },
-          replyTo: m.replyTo,
-        });
-      } else {
-        const text = m.text || '';
-        s().pushMessage(`room:${m.roomId}`, {
-          ...base,
-          text,
-          replyTo: m.replyTo,
-          mentionsMe: flagMention(m.roomId, text, m.fromPseudo, base.kind === 'me'),
-        });
-      }
-      s().clearTyping(`room:${m.roomId}`, m.fromId);
+    'room:key:request',
+    ({ roomId, epoch, toId, toPub }: { roomId: string; epoch: number; toId: string; toPub: string }) => {
+      const key = s().roomKeys[roomId];
+      if (!key || !toPub || !toId) return;
+      if ((s().roomKeyEpochs[roomId] || 0) !== epoch) return;
+      socket?.emit('room:key:send', { roomId, toId, epoch, env: wrapGroupKey(toPub, key) });
     },
   );
+  /**
+   * La clé nous parvient. Une enveloppe illisible — forgée, ou scellée pour un autre —
+   * est écartée sans bruit : d'autres porteurs ont été sollicités, la bonne suivra.
+   */
+  socket.on('room:key:deliver', ({ roomId, epoch, env }: { roomId: string; epoch: number; env: Envelope }) => {
+    let key: Uint8Array;
+    try {
+      key = unwrapGroupKey(env);
+    } catch {
+      return;
+    }
+    s().setGroupKey(roomId, key, epoch || 1);
+    keyAsked.delete(roomId);
+    flushPending(roomId);
+  });
   // Retrait ciblé d'un message par la modération (best-effort chez les clients connectés).
   socket.on('room:retract', ({ roomId, messageId }: { roomId: string; messageId: string }) => {
     s().retractMessage(`room:${roomId}`, messageId);
@@ -278,18 +424,16 @@ export async function connect(): Promise<void> {
    */
   socket.on(
     'room:edited',
-    (m: { roomId: string; messageId: string; fromId: string; text?: string; enc?: string; env?: RoomEnvelope }) => {
-      let text = m.text || '';
-      if (m.enc) {
-        const key = s().roomKeys[m.roomId];
-        try {
-          if (!key || !m.env) throw new Error('clé absente');
-          text = decodeBody(decryptRoom(key, m.env)).text;
-        } catch {
-          // Modification illisible : la bulle garde ce qu'elle affichait — déjà
-          // « illisible » si la clé manque. On n'a rien de plus juste à mettre.
-          return;
-        }
+    (m: { roomId: string; messageId: string; fromId: string; enc?: string; env?: RoomEnvelope }) => {
+      const key = s().roomKeys[m.roomId];
+      let text: string;
+      try {
+        if (!key || !m.env) throw new Error('clé absente');
+        text = decodeBody(decryptRoom(key, m.env)).text;
+      } catch {
+        // Modification illisible : la bulle garde ce qu'elle affichait — déjà
+        // « illisible » si la clé manque. On n'a rien de plus juste à mettre.
+        return;
       }
       if (text) s().editMessage(`room:${m.roomId}`, m.messageId, text, m.fromId);
     },
@@ -427,7 +571,13 @@ export async function identify(form: IdentifyForm): Promise<{ ok: boolean; error
         error?: string;
         me?: Person;
         radiusKm?: number;
-        homeRoom?: { room: JoinedRoom; owner: string; members: RoomMember[] } | null;
+        homeRoom?: {
+          room: JoinedRoom;
+          owner: string;
+          members: RoomMember[];
+          genesis?: boolean;
+          keyEpoch?: number;
+        } | null;
         // Connexion arrivée par le service onion. État de la
         // CONNEXION, pas de l'identité : il ne figure donc pas dans `me`, et n'est
         // jamais diffusé aux autres présents.
@@ -453,7 +603,11 @@ export async function identify(form: IdentifyForm): Promise<{ ok: boolean; error
           // Salon de région : rejoint automatiquement, épinglé et affiché d'emblée.
           if (res.homeRoom?.room) {
             const hr = res.homeRoom;
-            s().upsertJoinedRoom({ ...hr.room, owner: hr.owner, members: hr.members || [] });
+            const home = { ...hr.room, owner: hr.owner, members: hr.members || [] };
+            s().upsertJoinedRoom(home);
+            // Le salon de région est public, donc chiffré : on y entre par l'identify et
+            // non par `room:join`, mais la clé s'y obtient exactement de la même façon.
+            settleGroupKey(home, hr);
             s().setHomeRoom({ id: hr.room.id, name: hr.room.name });
             s().setActive({ kind: 'room', id: hr.room.id });
           }
@@ -584,17 +738,17 @@ export async function sendRoomMedia(roomId: string, file: File, replyTo?: string
     s().showToast((e as Error).message, 'warn');
     return;
   }
-  const key = s().roomKeys[roomId];
-  if (key) {
-    // Salon chiffré : octets chiffrés en secretbox, nonce dans l'enveloppe, mime/kind en clair (rendu).
-    // La réponse citée passe par un corps scellé à part (`body`), pas en clair.
-    const { nonce, cipher } = encryptRoomBytes(key, media.bytes);
-    const env: RoomEnvelope & { body?: RoomEnvelope } = { n: nonce, c: '' };
-    if (replyTo) env.body = encryptRoom(key, encodeBody({ text: '', replyTo }));
-    socket?.emit('room:message', { roomId, kind: 'media', mime: media.mime, media: media.kind, env, data: cipher, ts: now() });
-  } else {
-    socket?.emit('room:message', { roomId, kind: 'media', mime: media.mime, media: media.kind, data: media.bytes, replyTo, ts: now() });
-  }
+  const key = keyForSending(roomId);
+  if (!key) return;
+  // Octets chiffrés en secretbox, nonce dans l'enveloppe, mime/kind en clair (rendu).
+  // La réponse citée passe par un corps scellé à part (`body`) : deux clairs ne peuvent
+  // pas partager le nonce `n`, déjà consommé par les octets du média.
+  const { nonce, cipher } = encryptRoomBytes(key, media.bytes);
+  const env: RoomEnvelope & { body?: RoomEnvelope } = { n: nonce, c: '' };
+  if (replyTo) env.body = encryptRoom(key, encodeBody({ text: '', replyTo }));
+  socket?.emit('room:message', {
+    roomId, kind: 'media', mime: media.mime, media: media.kind, env, data: cipher, ts: now(), ke: sendingEpoch(roomId),
+  });
 }
 
 export function refreshRooms(): void {
@@ -625,10 +779,13 @@ export async function createRoom(form: CreateForm): Promise<{ ok: boolean; error
     payload = { name: form.name, type: 'private', encrypted: '1', verifier: mat.verifier, salt };
   }
   return new Promise((resolve) => {
-    socket?.emit('room:create', payload, (res: { ok?: boolean; error?: string; room?: JoinedRoom; invite?: string; owner?: string; members?: RoomMember[] }) => {
+    socket?.emit('room:create', payload, (res: { ok?: boolean; error?: string; room?: JoinedRoom; invite?: string; owner?: string; members?: RoomMember[]; genesis?: boolean; keyEpoch?: number }) => {
       if (res?.ok && res.room) {
-        s().upsertJoinedRoom({ ...res.room, owner: res.owner!, members: res.members || [], invite: res.invite });
+        const room = { ...res.room, owner: res.owner!, members: res.members || [], invite: res.invite };
+        s().upsertJoinedRoom(room);
         if (key && password) s().setRoomKey(res.room.id, key, password);
+        // Salon public : le créateur en est le seul membre, c'est donc lui qui engendre la clé.
+        else settleGroupKey(room, res);
         s().setActive({ kind: 'room', id: res.room.id });
         resolve({ ok: true, roomId: res.room.id });
       } else resolve({ ok: false, error: res?.error });
@@ -636,13 +793,29 @@ export async function createRoom(form: CreateForm): Promise<{ ok: boolean; error
   });
 }
 
-type PeekResult = { ok: boolean; name?: string; encrypted?: boolean; salt?: string; error?: string };
+type PeekResult = {
+  ok: boolean;
+  name?: string;
+  encrypted?: boolean;
+  // Dit à l'appelant s'il doit réclamer un mot de passe avant d'entrer (`password`) ou
+  // entrer directement (`group`) — tout salon étant chiffré, `encrypted` ne le dit plus.
+  keyMode?: RoomKeyMode;
+  salt?: string;
+  error?: string;
+};
 
 /** Pré-vol d'un salon (avant join) : récupère nom + flag chiffré + sel public pour dériver la clé. */
 export function peekRoom(roomId: string): Promise<PeekResult> {
   return new Promise((resolve) => {
     socket?.emit('room:peek', { roomId }, (res: PeekResult) =>
-      resolve({ ok: !!res?.ok, name: res?.name, encrypted: res?.encrypted, salt: res?.salt, error: res?.error }),
+      resolve({
+        ok: !!res?.ok,
+        name: res?.name,
+        encrypted: res?.encrypted,
+        keyMode: res?.keyMode,
+        salt: res?.salt,
+        error: res?.error,
+      }),
     );
   });
 }
@@ -660,10 +833,14 @@ export async function joinRoom(form: JoinForm): Promise<{ ok: boolean; error?: s
     payload = { roomId: form.roomId, verifier: mat.verifier };
   }
   return new Promise((resolve) => {
-    socket?.emit('room:join', payload, (res: { ok?: boolean; error?: string; room?: JoinedRoom; owner?: string; members?: RoomMember[] }) => {
+    socket?.emit('room:join', payload, (res: { ok?: boolean; error?: string; room?: JoinedRoom; owner?: string; members?: RoomMember[]; genesis?: boolean; keyEpoch?: number }) => {
       if (res?.ok && res.room) {
-        s().upsertJoinedRoom({ ...res.room, owner: res.owner!, members: res.members || [] });
+        const room = { ...res.room, owner: res.owner!, members: res.members || [] };
+        s().upsertJoinedRoom(room);
         if (key && form.password) s().setRoomKey(res.room.id, key, form.password);
+        // Salon public : soit le serveur nous désigne pour engendrer la clé, soit il a
+        // sollicité des porteurs et leur remise nous parviendra.
+        else settleGroupKey(room, res);
         s().setActive({ kind: 'room', id: res.room.id });
         resolve({ ok: true });
       } else resolve({ ok: false, error: res?.error });
@@ -671,16 +848,32 @@ export async function joinRoom(form: JoinForm): Promise<{ ok: boolean; error?: s
   });
 }
 
-export function sendRoomMessage(roomId: string, text: string, replyTo?: string): void {
+/**
+ * Clé du salon, ou `null` avec un mot d'explication à l'écran. Aucun salon ne circule
+ * en clair : sans clé, il n'y a pas d'envoi possible, et se taire sans rien dire
+ * laisserait croire à un message parti. Le cas se produit brièvement à l'entrée dans un
+ * salon en régime de groupe, le temps qu'un membre nous serve la clé.
+ */
+function keyForSending(roomId: string): Uint8Array | null {
   const key = s().roomKeys[roomId];
-  if (key) {
-    // Salon chiffré : la référence de réponse est scellée avec le texte — le serveur
-    // relaie une enveloppe opaque et ignore jusqu'au graphe des réponses.
-    socket?.emit('room:message', { roomId, env: encryptRoom(key, encodeBody({ text, replyTo })), ts: now() });
-  } else {
-    // Salon en clair : seul l'identifiant du message cité circule, jamais son contenu.
-    socket?.emit('room:message', { roomId, text, replyTo, ts: now() });
-  }
+  if (key) return key;
+  s().showToast(
+    s().joinedRooms[roomId]?.keyMode === 'password'
+      ? 'Clé du salon perdue : ressaisissez le mot de passe pour écrire.'
+      : 'Clé du salon pas encore reçue — réessayez dans un instant.',
+    'warn',
+  );
+  return null;
+}
+
+export function sendRoomMessage(roomId: string, text: string, replyTo?: string): void {
+  const key = keyForSending(roomId);
+  if (!key) return;
+  // La référence de réponse est scellée avec le texte — le serveur relaie une enveloppe
+  // opaque et ignore jusqu'au graphe des réponses.
+  socket?.emit('room:message', {
+    roomId, env: encryptRoom(key, encodeBody({ text, replyTo })), ts: now(), ke: sendingEpoch(roomId),
+  });
 }
 
 /**
@@ -689,15 +882,20 @@ export function sendRoomMessage(roomId: string, text: string, replyTo?: string):
  * sous la même vérification d'auteur.
  */
 export function editRoomMessage(roomId: string, messageId: string, text: string): void {
-  const key = s().roomKeys[roomId];
-  if (key) socket?.emit('room:edit', { roomId, messageId, env: encryptRoom(key, encodeBody({ text })) });
-  else socket?.emit('room:edit', { roomId, messageId, text });
+  const key = keyForSending(roomId);
+  if (!key) return;
+  socket?.emit('room:edit', {
+    roomId, messageId, env: encryptRoom(key, encodeBody({ text })), ke: sendingEpoch(roomId),
+  });
 }
 
 // --- Signalement (DSA art.16 notice-and-action) ----------------------------
 type ReportResult = { ok: boolean; error?: string };
 
-/** Signale un message de salon public (le serveur en a vu le contenu en clair). */
+/**
+ * Signale un message de salon. Le clair est fourni PAR LE SIGNALEUR : tout salon étant
+ * chiffré, le serveur n'a jamais vu ce texte et le marquera « non vérifié » (art.16).
+ */
 export function reportRoomMessage(
   roomId: string,
   messageId: string,
@@ -740,6 +938,9 @@ export function sendTyping(scope: 'pm' | 'room', id: string): void {
 export function leaveRoom(roomId: string): void {
   socket?.emit('room:leave', { roomId });
   s().removeJoinedRoom(roomId);
+  // Sortir purge la clé (cf. `removeJoinedRoom`) : ce qui attendait cette clé
+  // n'a plus aucune chance d'être lu, on ne le garde pas en mémoire.
+  forgetPending(roomId);
 }
 
 /* ---- Continuer en privé, depuis la liste des présents --------------------

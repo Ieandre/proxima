@@ -112,6 +112,9 @@ function buildContext(io, socket) {
     pushLobby: () => roomActions.pushLobby(io),
     broadcastMembers: (roomId) => roomActions.broadcastMembers(io, roomId),
     handleLeave: (roomId, leaverId) => roomActions.handleLeave(io, roomId, leaverId),
+    // Remise de la clé d'un salon public à un arrivant. Dans le contexte parce que
+    // DEUX chemins y entrent : `room:join` et l'auto-jonction au salon de région.
+    arrangeGroupKey: (room, joinerId) => roomActions.arrangeGroupKey(io, room, joinerId),
     announceLeave,
     notifyReport,
   };

@@ -11,6 +11,43 @@ const config = require('../config');
  *  - hash  `room:<id>`         : métadonnées (nom, type, propriétaire, mot de passe haché, jeton d'invitation) ;
  *  - zset  `room:<id>:members` : membres, score = ordre d'arrivée (pour le transfert de propriété RG-06) ;
  *  - set   `rooms:pub`         : index des salons publics (pour le listing).
+ *
+ * AUCUN SALON NE CIRCULE EN CLAIR. Deux régimes de clé, portés par `keyMode`, qui
+ * dit comment la clé s'OBTIENT — la porte d'entrée, elle, est une question séparée :
+ *
+ *  - `'password'` : clé dérivée par Argon2id du mot de passe + sel public, côté
+ *    client. Le serveur détient un `verifier` (preuve d'accès) et plafonne les membres.
+ *  - `'group'`    : clé symétrique aléatoire détenue par les seuls membres, transmise
+ *    d'un membre à l'autre enveloppée en `crypto_box` (cf. `room-actions.js` et les
+ *    événements `room:key:*`). Le serveur ne la voit jamais et ne plafonne pas.
+ *
+ * La PORTE et la CLÉ sont deux choses distinctes, et c'est ce qui rend les trois
+ * types de salon exprimables avec deux régimes :
+ *
+ *  | Type                        | Porte                            | Régime de clé |
+ *  |-----------------------------|----------------------------------|---------------|
+ *  | public                      | aucune                           | `group`       |
+ *  | privé sur invitation        | jeton d'invitation ou mot de passe de salon (haché SHA-256, côté serveur) | `group` |
+ *  | privé chiffré à mot de passe | `verifier` (preuve E2E)         | `password`    |
+ *
+ * Le mot de passe d'un salon privé sur invitation reste donc ce qu'il a toujours été —
+ * une porte vérifiée par le serveur — sans devenir pour autant la clé du contenu.
+ *
+ * Ce que le régime `'group'` protège, et ce qu'il ne protège pas : quiconque franchit
+ * la porte obtient la clé. La confidentialité vaut face à l'hébergeur — qui ne peut
+ * plus lire ce qu'il relaie — et jamais face aux participants. C'est un choix assumé,
+ * pas une limite qu'on comblera.
+ *
+ * ÉPOQUE DE CLÉ (`keyEpoch`) — un simple compteur, pas du matériel cryptographique.
+ * Une clé de groupe ne survit qu'à travers ses porteurs : quand le dernier membre
+ * s'en va, elle est perdue (un salon permanent, lui, reste). Le prochain arrivant
+ * en engendre donc une neuve, et l'époque s'incrémente pour que les deux
+ * générations ne soient jamais confondues. La règle de convergence est « la plus
+ * haute époque fait foi » : un membre qui reçoit un message d'une époque
+ * supérieure à la sienne réclame la clé correspondante. C'est ce qui rend deux
+ * genèses simultanées inoffensives — `hIncrBy` étant atomique, elles obtiennent
+ * deux époques distinctes, et la plus basse rattrape la plus haute au premier
+ * message.
  */
 const roomKey = (id) => `room:${id}`;
 const membersKey = (id) => `room:${id}:members`;
@@ -34,8 +71,14 @@ function toPublic(room) {
     type: room.type,
     hasPassword: room.hasPassword,
     encrypted: room.encrypted,
-    // Sel Argon2id public, exposé seulement pour un salon chiffré (sert à dériver la clé côté client).
-    salt: room.encrypted ? room.salt : undefined,
+    // Comment la clé s'obtient — le client en a besoin pour savoir s'il doit demander
+    // un mot de passe ou réclamer la clé aux membres.
+    keyMode: room.keyMode,
+    keyEpoch: room.keyEpoch,
+    // Sel Argon2id public, exposé pour le SEUL régime mot de passe (il sert à y dériver la
+    // clé). Ne jamais l'exposer autrement : sur un privé en clair, `salt` est le sel
+    // interne du hachage de `pass`.
+    salt: room.keyMode === 'password' ? room.salt : undefined,
   };
 }
 
@@ -47,8 +90,11 @@ async function createRoom({ name, type, password, ownerId, encrypted, verifier, 
   const id = genId(8);
   const invite = genId(16);
   const isEncrypted = !!encrypted;
-  const isPrivate = type === 'private' || isEncrypted; // un salon chiffré est toujours privé
-  // Salon chiffré : le sel Argon2id (16 o) est fourni PAR LE CLIENT et public ; sinon sel SHA-256 interne.
+  const isPrivate = type === 'private' || isEncrypted; // un salon à mot de passe est toujours privé
+  // Régime de clé : dérivé du mot de passe si demandé, sinon clé de groupe. Il n'existe
+  // aucun troisième cas — plus aucun salon ne circule en clair.
+  const keyMode = isEncrypted ? 'password' : 'group';
+  // Salon à mot de passe : le sel Argon2id (16 o) est fourni PAR LE CLIENT et public ; sinon sel SHA-256 interne.
   const roomSalt = isEncrypted ? salt : genId(8);
   await client.hSet(roomKey(id), {
     name,
@@ -56,17 +102,22 @@ async function createRoom({ name, type, password, ownerId, encrypted, verifier, 
     owner: ownerId,
     invite,
     salt: roomSalt,
-    // `pass` (hash SHA-256) seulement pour un privé NON chiffré ; `verifier` (preuve E2E) seulement si chiffré.
-    pass: !isEncrypted && isPrivate && password ? hashPassword(roomSalt, password) : '',
+    // `pass` (hash SHA-256) = la PORTE d'un privé sur invitation, distincte de la clé du
+    // contenu ; `verifier` (preuve E2E) n'existe qu'en régime mot de passe.
+    pass: keyMode === 'group' && isPrivate && password ? hashPassword(roomSalt, password) : '',
     verifier: isEncrypted ? verifier : '',
-    encrypted: isEncrypted ? '1' : '',
+    keyMode,
+    encrypted: '1',
+    // Le créateur est le premier membre : en régime de groupe, c'est lui qui engendre
+    // la clé, l'époque part donc à 1 sans passer par la coordination du join.
+    keyEpoch: keyMode === 'group' ? '1' : '',
     createdAt: String(nextScore()),
   });
   await client.expire(roomKey(id), config.ttl.roomSec);
   await addMember(id, ownerId);
-  // Visibilité : publics ET chiffrés sont listés (nom + cadenas) ;
-  // un privé sur invitation non chiffré reste hors index.
-  if (!isPrivate || isEncrypted) await client.sAdd(PUBLIC_INDEX, id);
+  // Visibilité : les publics et les salons à mot de passe sont listés (nom + cadenas) ;
+  // un privé sur invitation reste hors index — c'est son invitation qui le fait connaître.
+  if (!isPrivate || keyMode === 'password') await client.sAdd(PUBLIC_INDEX, id);
   return { id, invite };
 }
 
@@ -82,6 +133,11 @@ async function createPersistentRoom({ slug, name }) {
     type: 'public',
     owner: 'system',
     persistent: '1',
+    // Public, donc chiffré en régime de groupe comme les autres. Aucune époque n'est
+    // posée ici : un permanent naît VIDE (aucun membre à qui confier une clé), c'est
+    // son premier arrivant qui l'engendre.
+    keyMode: 'group',
+    encrypted: '1',
     createdAt: String(nextScore()),
   });
   // Volontairement AUCUN `expire` : un salon permanent ne doit jamais expirer.
@@ -143,6 +199,14 @@ async function setName(id, name) {
 async function getRoom(id) {
   const h = await client.hGetAll(roomKey(id));
   if (!h || !h.name) return null;
+  /**
+   * Régime de clé DÉDUIT quand le champ est absent — c'est ce qui rattrape les salons
+   * nés avant l'extension du chiffrement à tous les salons. La déduction n'est pas un
+   * confort : un salon PERMANENT n'a pas de TTL, il ne s'efface donc jamais tout seul
+   * et resterait en clair à vie sans elle. Un salon d'alors qui portait `encrypted`
+   * était nécessairement à mot de passe ; tout autre passe en régime de groupe.
+   */
+  const keyMode = h.keyMode ? h.keyMode : h.encrypted === '1' ? 'password' : 'group';
   return {
     id,
     name: h.name,
@@ -150,11 +214,35 @@ async function getRoom(id) {
     owner: h.owner,
     invite: h.invite,
     hasPassword: !!h.pass,
-    // Salon chiffré E2E : flag + sel Argon2id public exposés ; `verifier` JAMAIS exposé.
-    encrypted: h.encrypted === '1',
+    keyMode,
+    // Régime de clé mot de passe : sel Argon2id public exposé ; `verifier` JAMAIS exposé.
+    // `encrypted` est désormais TOUJOURS vrai — les deux régimes chiffrent. Conservé
+    // parce que l'interface l'affiche, et parce qu'un jour un régime en clair pourrait
+    // revenir : la question « ce salon est-il lisible par le serveur ? » garde un nom.
+    encrypted: true,
+    keyEpoch: Number(h.keyEpoch || 0),
     salt: h.salt || '',
     persistent: h.persistent === '1',
   };
+}
+
+/**
+ * Réclame la GENÈSE de la clé de groupe : ne réussit que si aucune époque n'existe.
+ * `hSetNX` est atomique, donc parmi plusieurs arrivants simultanés dans un salon
+ * neuf, un seul est désigné — les autres iront réclamer la clé aux membres.
+ */
+async function claimKeyGenesis(id) {
+  return client.hSetNX(roomKey(id), 'keyEpoch', '1');
+}
+
+/**
+ * Ouvre une NOUVELLE génération de clé et renvoie son numéro. Appelé quand plus
+ * aucun membre ne peut servir la clé courante (tous partis) : la génération d'avant
+ * est perdue et personne ne la réclamera plus. Atomique, donc deux appels
+ * concurrents rendent deux numéros distincts — la plus haute époque l'emporte.
+ */
+async function bumpKeyEpoch(id) {
+  return client.hIncrBy(roomKey(id), 'keyEpoch', 1);
 }
 
 async function addMember(id, sessionId) {
@@ -273,9 +361,12 @@ async function listPublic() {
       type: room.type,
       count,
       persistent: isPersistentRoom(room),
-      // Un salon chiffré est listé avec son cadenas + son sel public (dérivation directe) ; jamais le verifier.
+      // Tout salon listé est chiffré ; c'est `keyMode` qui dit s'il faut un mot de passe
+      // pour entrer (régime mot de passe) ou si l'entrée est libre (régime de groupe).
+      // Le sel n'accompagne que le premier — jamais le verifier, dans aucun cas.
       encrypted: room.encrypted,
-      salt: room.encrypted ? room.salt : undefined,
+      keyMode: room.keyMode,
+      salt: room.keyMode === 'password' ? room.salt : undefined,
     });
   }
   out.sort((a, b) => b.count - a.count);
@@ -291,6 +382,8 @@ module.exports = {
   ensureRegionRoom,
   setName,
   getRoom,
+  claimKeyGenesis,
+  bumpKeyEpoch,
   addMember,
   removeMember,
   isMember,

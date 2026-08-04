@@ -33,19 +33,24 @@ async function snapshot() {
     security.onionCounters(),
   ]);
 
-  const roomAgg = { total: publicRooms.length, members: 0, encrypted: 0, permanent: 0 };
+  /**
+   * Tout salon listé étant chiffré, en compter les chiffrés ne dirait plus rien (ce
+   * serait `total`). Ce qui reste distinctif pour l'opérateur, c'est le RÉGIME de clé :
+   * `password` est illisible ET fermé (plafonné, mot de passe requis), le reste est
+   * illisible mais d'entrée libre.
+   */
+  const roomAgg = { total: publicRooms.length, members: 0, password: 0, permanent: 0 };
   for (const r of publicRooms) {
     roomAgg.members += r.count || 0;
-    if (r.encrypted) roomAgg.encrypted += 1;
+    if (r.keyMode === 'password') roomAgg.password += 1;
     if (r.persistent) roomAgg.permanent += 1;
   }
 
-  // `priority` = motifs prioritaires DSA (mineur en danger / contenu illégal) ;
-  // `auto` = détectés par le filtre de mots-clés (salons publics uniquement, RG-07).
-  const reportAgg = { total: reports.length, priority: 0, auto: 0, byReason: {} };
+  // `priority` = motifs prioritaires DSA (mineur en danger / contenu illégal). Aucun
+  // compteur de détection automatique : il n'y en a plus, tout salon étant chiffré.
+  const reportAgg = { total: reports.length, priority: 0, byReason: {} };
   for (const rep of reports) {
     if (rep.reason === 'minor' || rep.reason === 'illegal') reportAgg.priority += 1;
-    if (rep.source === 'filter') reportAgg.auto += 1;
     reportAgg.byReason[rep.reason] = (reportAgg.byReason[rep.reason] || 0) + 1;
   }
 

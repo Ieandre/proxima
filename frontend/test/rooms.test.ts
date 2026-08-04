@@ -219,3 +219,60 @@ describe('normalize', () => {
     expect(normalize('Île-de-Francé')).toBe('ile-de-france');
   });
 });
+
+/**
+ * `locked` est la seule chose qui décide, dans toute l'interface, si un clic entre dans
+ * le salon ou réclame d'abord un mot de passe. Tous les salons étant chiffrés,
+ * `encrypted` ne peut plus jouer ce rôle : ces cas fixent la frontière.
+ */
+describe('buildRoomList — régime de clé', () => {
+  it('un salon PUBLIC est chiffré mais jamais verrouillé', () => {
+    const list = buildRoomList({
+      publicRooms: [summary('pub', { encrypted: true, keyMode: 'group' })],
+      joinedRooms: {},
+      homeRoom: null,
+    });
+    expect(list[0].encrypted).toBe(true);
+    expect(list[0].locked).toBe(false);
+  });
+
+  it('un salon à MOT DE PASSE est verrouillé', () => {
+    const list = buildRoomList({
+      publicRooms: [summary('mdp', { type: 'private', encrypted: true, keyMode: 'password', salt: 'SEL' })],
+      joinedRooms: {},
+      homeRoom: null,
+    });
+    expect(list[0].locked).toBe(true);
+    expect(list[0].salt).toBe('SEL');
+  });
+
+  it('un salon privé sur INVITATION est chiffré, sans être verrouillé', () => {
+    // Sa porte est le jeton d'invitation, pas un mot de passe dont on dériverait la clé :
+    // il est donc illisible par l'hébergeur ET son entrée ne réclame aucune saisie.
+    const list = buildRoomList({
+      publicRooms: [],
+      joinedRooms: { inv: joined('inv', 2, { type: 'private', encrypted: true, keyMode: 'group' }) },
+      homeRoom: null,
+    });
+    expect(list[0].encrypted).toBe(true);
+    expect(list[0].locked).toBe(false);
+    expect(list[0].private).toBe(true);
+  });
+
+  it('le régime est lu sur le salon rejoint, à défaut sur l\'annuaire', () => {
+    // Un salon rejoint dont l'ack ne portait pas le régime : l'annuaire complète.
+    const list = buildRoomList({
+      publicRooms: [summary('r', { type: 'private', encrypted: true, keyMode: 'password', salt: 'SEL' })],
+      joinedRooms: { r: joined('r', 1, { type: 'private', encrypted: true, keyMode: undefined }) },
+      homeRoom: null,
+    });
+    expect(list[0].locked).toBe(true);
+  });
+
+  it('le salon de région quitté reste chiffré et d\'entrée libre', () => {
+    const list = buildRoomList({ publicRooms: [], joinedRooms: {}, homeRoom: { id: 'rgn-fr-11', name: 'IDF' } });
+    expect(list[0].region).toBe(true);
+    expect(list[0].encrypted).toBe(true);
+    expect(list[0].locked).toBe(false);
+  });
+});

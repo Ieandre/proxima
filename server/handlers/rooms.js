@@ -6,21 +6,24 @@ const rooms = require('../domain/rooms');
 const moderation = require('../domain/moderation');
 
 /**
- * SALONS (§2.4) — cycle de vie : création, listing, pré-vol, entrée, sortie.
+ * SALONS (§2.4) — cycle de vie : création, listing, pré-vol, entrée, sortie, et
+ * remise de la clé de groupe aux arrivants.
  *
  * Les messages sont dans `messages.js` et la gouvernance (exclusion, fermeture,
  * mot de passe) dans `governance.js` : ce qui suit ne concerne que l'appartenance.
  *
- * Ce module ne diffuse plus rien lui-même — d'où l'absence d'`io` : entrer est
- * muet, et l'annonce d'un départ est portée par `announceLeave` (contexte de
- * connexion), partagée avec la fermeture d'onglet.
+ * Entrer reste muet (l'annonce d'un départ est portée par `announceLeave`, partagée
+ * avec la fermeture d'onglet), mais `io` est requis : la clé d'un salon public
+ * circule de membre à membre, et c'est ce module qui met les deux en relation.
  */
-function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLeave, announceLeave }) {
+function register({ io, socket, sid, limited, pushLobby, broadcastMembers, handleLeave, announceLeave, arrangeGroupKey }) {
   socket.on('room:create', async (payload = {}, cb) => {
     const id = sid();
     if (!id) return ack(cb, { error: 'Non identifié.' });
     const name = clamp(payload.name, 32).trim();
-    // Salon chiffré E2E (RG-07 étendu) : toujours privé, mot de passe exclusif (pas d'invitation).
+    // Chiffrement à MOT DE PASSE : toujours privé, mot de passe exclusif (pas d'invitation).
+    // Un salon public est chiffré aussi, mais en régime de GROUPE — le client ne le
+    // demande pas, c'est le domaine qui l'attribue (cf. `rooms.createRoom`).
     const encrypted = payload.encrypted === '1' || payload.encrypted === true;
     const type = encrypted ? 'private' : payload.type === 'private' ? 'private' : 'public';
     const password = clamp(payload.password, 64);
@@ -48,8 +51,17 @@ function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLea
     socket.data.rooms.add(roomId);
     const room = await rooms.getRoom(roomId);
     const members = await rooms.memberProfiles(roomId);
-    // Un salon chiffré n'expose pas d'invitation (mot de passe exclusif).
-    ack(cb, { ok: true, room: rooms.toPublic(room), invite: encrypted ? undefined : invite, owner: id, members });
+    // Un salon à mot de passe n'expose pas d'invitation (mot de passe exclusif).
+    // En régime de groupe, le créateur est seul membre : c'est lui qui engendre la clé
+    // (l'époque est déjà à 1, cf. `rooms.createRoom`).
+    ack(cb, {
+      ok: true,
+      room: rooms.toPublic(room),
+      invite: encrypted ? undefined : invite,
+      owner: id,
+      members,
+      genesis: room.keyMode === 'group',
+    });
     await pushLobby();
   });
 
@@ -67,7 +79,15 @@ function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLea
     const roomId = clamp(payload.roomId, 32);
     const room = await rooms.getRoom(roomId);
     if (!room) return ack(cb, { error: 'Salon introuvable ou fermé.' });
-    ack(cb, { ok: true, name: room.name, encrypted: room.encrypted, salt: room.encrypted ? room.salt : '' });
+    ack(cb, {
+      ok: true,
+      name: room.name,
+      encrypted: room.encrypted,
+      // `keyMode` dit au client s'il doit réclamer un mot de passe avant d'entrer
+      // (régime mot de passe) ou entrer directement (régime de groupe).
+      keyMode: room.keyMode,
+      salt: room.keyMode === 'password' ? room.salt : '',
+    });
   });
 
   socket.on('room:join', async (payload = {}, cb) => {
@@ -81,9 +101,11 @@ function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLea
     const room = await rooms.getRoom(roomId);
     if (!room) return ack(cb, { error: 'Salon introuvable ou fermé.' });
 
-    if (room.encrypted) {
-      // Salon chiffré : accès par vérificateur (mot de passe exclusif ; l'invitation est ignorée).
+    if (room.keyMode === 'password') {
+      // Régime mot de passe : accès par vérificateur (l'invitation est ignorée).
       // Plafond de membres (posture DSA) — sauf si déjà membre (reconnexion après reload).
+      // Il ne s'applique QU'ICI : un salon public n'est pas plafonné, sa clé de groupe
+      // ne garde pas l'entrée.
       const already = await rooms.isMember(roomId, id);
       if (!already && (await rooms.memberCount(roomId)) >= config.rooms.encryptedMaxMembers) {
         return ack(cb, { error: 'Salon complet.' });
@@ -102,7 +124,10 @@ function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLea
     socket.data.rooms.add(roomId);
     const members = await rooms.memberProfiles(roomId);
     const owner = await rooms.ownerOf(roomId);
-    ack(cb, { ok: true, room: rooms.toPublic(room), owner, members });
+    // Remise de la clé APRÈS l'inscription comme membre : les porteurs sollicités
+    // répondent par `room:key:send`, qui vérifie l'appartenance des deux extrémités.
+    const keyInfo = await arrangeGroupKey(room, id);
+    ack(cb, { ok: true, room: rooms.toPublic(room), owner, members, ...keyInfo });
 
     // AUCUNE annonce d'arrivée, dans aucun salon. Entrer n'interrompt donc jamais
     // la conversation en cours, et regarder un salon avant d'y parler ne coûte rien
@@ -114,6 +139,52 @@ function register({ socket, sid, limited, pushLobby, broadcastMembers, handleLea
     // pour la première fois annonce son arrivée mieux qu'une ligne système.
     await broadcastMembers(roomId);
     await pushLobby();
+  });
+
+  /**
+   * Un membre SERT la clé de groupe à un arrivant, en réponse à `room:key:request`.
+   *
+   * Le serveur relaie une enveloppe `crypto_box` scellée pour la clé publique de
+   * l'arrivant : il ne peut ni la lire, ni vérifier qu'elle contient bien la clé du
+   * salon — c'est le destinataire qui le constatera en déchiffrant, et qui écartera
+   * une enveloppe illisible. Ce que le serveur vérifie, c'est l'APPARTENANCE des
+   * deux extrémités : sans quoi il suffirait d'annoncer un identifiant pour se faire
+   * remettre la clé d'un salon qu'on n'a pas rejoint.
+   */
+  socket.on('room:key:send', async (payload = {}) => {
+    const id = sid();
+    if (!id) return;
+    if (await limited()) return;
+    const roomId = clamp(payload.roomId, 32);
+    const toId = clamp(payload.toId, 32);
+    const env = payload.env;
+    if (!roomId || !toId || !env || typeof env !== 'object') return;
+    if (!(await rooms.isMember(roomId, id))) return;
+    if (!(await rooms.isMember(roomId, toId))) return;
+    io.to(`user:${toId}`).emit('room:key:deliver', {
+      roomId,
+      epoch: Number(payload.epoch) || 0,
+      fromId: id,
+      env,
+    });
+  });
+
+  /**
+   * Un membre RÉCLAME la clé : soit elle ne lui est jamais parvenue à l'entrée (aucun
+   * porteur joignable sur le moment), soit il vient de voir passer un message d'une
+   * époque plus récente que la sienne — la génération a changé pendant qu'il était là.
+   * Même coordination qu'au join, donc même issue possible : se voir désigner pour
+   * engendrer la clé si plus personne ne la détient.
+   */
+  socket.on('room:key:need', async (payload = {}, cb) => {
+    const id = sid();
+    if (!id) return ack(cb, { error: 'Non identifié.' });
+    if (await limited()) return ack(cb, { error: 'Trop de requêtes. Patientez un instant.' });
+    const roomId = clamp(payload.roomId, 32);
+    if (!(await rooms.isMember(roomId, id))) return ack(cb, { error: 'Salon introuvable ou fermé.' });
+    const room = await rooms.getRoom(roomId);
+    if (!room || room.keyMode !== 'group') return ack(cb, { error: 'Salon introuvable ou fermé.' });
+    ack(cb, { ok: true, ...(await arrangeGroupKey(room, id)) });
   });
 
   socket.on('room:leave', async (payload = {}) => {

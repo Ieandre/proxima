@@ -132,6 +132,34 @@ class FakeRedis {
     return Object.fromEntries(h.entries());
   }
 
+  /**
+   * Incrément atomique — c'est l'atomicité qui sert de coordination : deux clients
+   * qui réclament une génération de clé au même instant obtiennent deux valeurs
+   * distinctes, jamais la même (cf. `rooms.bumpKeyEpoch`).
+   */
+  async hIncrBy(key, field, by) {
+    let h = this.hashes.get(key);
+    if (!h) {
+      h = new Map();
+      this.hashes.set(key, h);
+    }
+    const next = Number(h.get(field) || 0) + Number(by);
+    h.set(String(field), String(next));
+    return next;
+  }
+
+  /** Pose le champ SEULEMENT s'il est absent. Renvoie true si posé (comme node-redis). */
+  async hSetNX(key, field, value) {
+    let h = this.hashes.get(key);
+    if (!h) {
+      h = new Map();
+      this.hashes.set(key, h);
+    }
+    if (h.has(String(field))) return false;
+    h.set(String(field), String(value));
+    return true;
+  }
+
   // ---- Sorted sets (et index GEO partagé) --------------------------------
   async zAdd(key, members) {
     let z = this.zsets.get(key);

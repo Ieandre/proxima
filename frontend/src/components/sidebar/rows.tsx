@@ -24,14 +24,16 @@ export function RoomRow({
   onEnter: () => void;
   onLeave: () => void;
 }) {
-  const icon = room.region ? 'pin' : room.encrypted || room.private ? 'lock' : 'hash';
+  // Le cadenas dit « fermé », pas « chiffré » : tout l'est désormais, et un cadenas
+  // partout ne distinguerait plus rien.
+  const icon = room.region ? 'pin' : room.locked || room.private ? 'lock' : 'hash';
   const meta = [
     room.count === null
       ? "vous n'y êtes plus"
       : room.count === 0
         ? 'vide'
         : `${room.count} présent${room.count > 1 ? 's' : ''}`,
-    !room.here && room.encrypted ? 'mot de passe' : null,
+    !room.here && room.locked ? 'mot de passe' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -46,12 +48,12 @@ export function RoomRow({
         className="room-row__main"
         onClick={onEnter}
         disabled={joining}
-        /* Un salon chiffré est le seul dont le clic n'entre pas tout de suite : il
+        /* Un salon verrouillé est le seul dont le clic n'entre pas tout de suite : il
            demande le mot de passe dont la clé se dérive. Ailleurs, la ligne ouvre. */
         title={
           room.here
             ? `Ouvrir ${room.name}`
-            : room.encrypted
+            : room.locked
               ? `Entrer dans ${room.name} (mot de passe)`
               : `Entrer dans ${room.name}`
         }

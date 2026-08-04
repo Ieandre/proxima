@@ -79,7 +79,9 @@
     var r = m.rooms || {};
     setText('mRooms', String(r.total != null ? r.total : '–'));
     var roomSub = [];
-    if (r.encrypted) roomSub.push(r.encrypted + ' chiffré' + (r.encrypted > 1 ? 's' : ''));
+    // Tous les salons sont chiffrés : on n'affiche donc que ce qui distingue encore,
+    // le régime à mot de passe (illisible ET fermé).
+    if (r.password) roomSub.push(r.password + ' à mot de passe');
     if (r.permanent) roomSub.push(r.permanent + ' permanent' + (r.permanent > 1 ? 's' : ''));
     setText('mRoomsSub', roomSub.join(' · '));
     setText('mMembers', String(r.members != null ? r.members : '–'));
@@ -87,7 +89,6 @@
     var rep = m.reports || {};
     setText('mReports', String(rep.total != null ? rep.total : '–'));
     setText('mPriority', String(rep.priority != null ? rep.priority : '–'));
-    setText('mAuto', String(rep.auto != null ? rep.auto : '–'));
     var byReason = rep.byReason || {};
     var reasonSub = Object.keys(byReason).map(function (k) {
       return (REASON_LABEL[k] || k) + ' : ' + byReason[k];
@@ -157,7 +158,6 @@
       REASON_LABEL[r.reason] || r.reason);
     meta.appendChild(reason);
     meta.appendChild(el('span', 'tag', r.scope === 'pm' ? 'message privé' : 'salon'));
-    if (r.source === 'filter') meta.appendChild(el('span', 'badge filter', 'filtre auto'));
     if (r.unverified) meta.appendChild(el('span', 'badge unverified', 'non vérifié'));
     meta.appendChild(el('span', 'tag', fmtTs(r.ts)));
     card.appendChild(meta);

@@ -56,6 +56,62 @@ test('createRoom private avec mot de passe : pas indexé public, vérif mdp', as
   assert.equal(publics.find((r) => r.id === id), undefined, 'un salon privé ne doit pas être listé');
 });
 
+/**
+ * PORTE et CLÉ sont deux choses distinctes, et c'est ce qui rend la cohérence possible :
+ * un salon privé sur invitation garde sa porte (jeton ou mot de passe vérifié par le
+ * serveur) tout en chiffrant son contenu comme les autres. Le mot de passe n'y devient
+ * PAS la clé — sans quoi il faudrait choisir entre garder la porte et chiffrer.
+ */
+test('régimes de clé : aucun salon ne circule en clair', async () => {
+  const pub = await rooms.createRoom({ name: 'Public', type: 'public', ownerId: 'o1' });
+  const invite = await rooms.createRoom({ name: 'Invitation', type: 'private', password: 'porte', ownerId: 'o2' });
+  const mdp = await rooms.createRoom({
+    name: 'Fermé', type: 'private', ownerId: 'o3', encrypted: true, verifier: 'v', salt: 'sel',
+  });
+
+  const [rPub, rInvite, rMdp] = await Promise.all([
+    rooms.getRoom(pub.id), rooms.getRoom(invite.id), rooms.getRoom(mdp.id),
+  ]);
+
+  assert.equal(rPub.keyMode, 'group');
+  assert.equal(rInvite.keyMode, 'group', 'le privé sur invitation chiffre lui aussi');
+  assert.equal(rMdp.keyMode, 'password');
+  for (const r of [rPub, rInvite, rMdp]) assert.equal(r.encrypted, true);
+
+  // La porte du privé sur invitation est intacte : le mot de passe reste vérifié côté
+  // serveur, et n'est pas devenu le matériau de la clé.
+  assert.equal(rInvite.hasPassword, true);
+  assert.equal(await rooms.verifyPassword(invite.id, 'porte'), true);
+  assert.equal(await rooms.verifyPassword(invite.id, 'mauvais'), false);
+  // Le régime mot de passe, lui, n'a AUCUN mot de passe côté serveur : juste un verifier.
+  assert.equal(rMdp.hasPassword, false);
+
+  // Les deux régimes de groupe partent à l'époque 1 (leur créateur engendre la clé) ;
+  // une clé dérivée n'a pas de génération.
+  assert.equal(rPub.keyEpoch, 1);
+  assert.equal(rInvite.keyEpoch, 1);
+  assert.equal(rMdp.keyEpoch, 0);
+
+  // Visibilité inchangée : seul le privé sur INVITATION reste hors annuaire.
+  const publics = await rooms.listPublic();
+  assert.ok(publics.find((r) => r.id === pub.id));
+  assert.ok(publics.find((r) => r.id === mdp.id), 'un salon à mot de passe est listé (nom + cadenas)');
+  assert.equal(publics.find((r) => r.id === invite.id), undefined);
+});
+
+test('getRoom : un salon né avant le chiffrement généralisé est rattrapé', async () => {
+  // Sans cette déduction, un salon PERMANENT (aucun TTL) resterait en clair à vie.
+  await fake.hSet('room:ancien-clair', { name: 'Ancien', type: 'private', owner: 'o' });
+  await fake.hSet('room:ancien-mdp', { name: 'Fermé', type: 'private', owner: 'o', encrypted: '1', verifier: 'v' });
+
+  const clair = await rooms.getRoom('ancien-clair');
+  assert.equal(clair.keyMode, 'group', 'passe en régime de groupe');
+  assert.equal(clair.encrypted, true);
+
+  const mdp = await rooms.getRoom('ancien-mdp');
+  assert.equal(mdp.keyMode, 'password', 'portait déjà `encrypted` : c\'était un salon à mot de passe');
+});
+
 test('verifyInvite : seul le jeton émis est accepté', async () => {
   const { id, invite } = await rooms.createRoom({ name: 'Privé', type: 'private', ownerId: 'owner' });
   assert.equal(await rooms.verifyInvite(id, invite), true);

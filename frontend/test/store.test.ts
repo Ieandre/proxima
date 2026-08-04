@@ -87,6 +87,32 @@ describe('salons & clés (RG-01/02 : purge RAM)', () => {
     expect(s().roomPasswords.r1).toBe('motdepasse');
   });
 
+  it('setGroupKey stocke la clé ET sa génération, sans mot de passe', () => {
+    const key = new Uint8Array([4, 5, 6]);
+    s().setGroupKey('r1', key, 2);
+    expect(s().roomKeys.r1).toBe(key);
+    expect(s().roomKeyEpochs.r1).toBe(2);
+    // Un salon public n'a pas de mot de passe : rien à retenir pour le « copier ».
+    expect(s().roomPasswords.r1).toBeUndefined();
+  });
+
+  it('setGroupKey n\'écrase JAMAIS une clé par une génération plus ancienne', () => {
+    // Plusieurs porteurs répondent en parallèle : une remise tardive portant l'époque
+    // d'avant remettrait le salon dans le noir.
+    const recente = new Uint8Array([9, 9]);
+    s().setGroupKey('r1', recente, 3);
+    s().setGroupKey('r1', new Uint8Array([1, 1]), 2);
+    expect(s().roomKeys.r1).toBe(recente);
+    expect(s().roomKeyEpochs.r1).toBe(3);
+  });
+
+  it('setGroupKey accepte la MÊME génération : deux porteurs servent la même clé', () => {
+    s().setGroupKey('r1', new Uint8Array([1]), 5);
+    const autre = new Uint8Array([2]);
+    s().setGroupKey('r1', autre, 5);
+    expect(s().roomKeys.r1).toBe(autre);
+  });
+
   it('setRoomMembers no-op si le salon n\'est pas rejoint', () => {
     s().setRoomMembers('inconnu', [{ id: 'a', pseudo: 'A' }], 'a');
     expect(s().joinedRooms.inconnu).toBeUndefined();
@@ -108,6 +134,14 @@ describe('salons & clés (RG-01/02 : purge RAM)', () => {
     expect(s().roomKeys.r1).toBeUndefined();
     expect(s().roomPasswords.r1).toBeUndefined();
     expect(s().active).toBe(null); // l'onglet actif ciblait ce salon
+  });
+
+  it('removeJoinedRoom purge aussi la génération de clé de groupe', () => {
+    s().upsertJoinedRoom(room('r1'));
+    s().setGroupKey('r1', new Uint8Array([7]), 4);
+    s().removeJoinedRoom('r1');
+    expect(s().roomKeys.r1).toBeUndefined();
+    expect(s().roomKeyEpochs.r1).toBeUndefined();
   });
 });
 

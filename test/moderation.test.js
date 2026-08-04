@@ -60,10 +60,16 @@ test('getReport : signalement autosuffisant, consultable sans aucune session (RG
   assert.equal(r.content, 'message litigieux');
 });
 
-test('createReport : un signalement issu du filtre est fiable (unverified = false)', async () => {
-  const created = await moderation.createReport(sampleReport({ source: 'filter', reporterId: null }));
-  assert.ok(created);
-  assert.equal(created.unverified, false);
+test('createReport : TOUT signalement est marqué non vérifié', async () => {
+  // Propriété du système, pas valeur par défaut : tout salon étant chiffré, le serveur
+  // n'a jamais vu le contenu qu'on lui rapporte — il ne peut donc en attester aucun.
+  const spontane = await moderation.createReport(sampleReport());
+  assert.equal(spontane.unverified, true);
+  const cleartext = await moderation.createReport(
+    sampleReport({ messageId: 'm-cleartext', source: 'reporter-cleartext' }),
+  );
+  assert.equal(cleartext.source, 'reporter-cleartext');
+  assert.equal(cleartext.unverified, true);
 });
 
 test('getReport : null si le signalement n\'existe pas', async () => {
@@ -118,23 +124,6 @@ test('listReports : nettoyage paresseux d\'une entrée d\'index dont le hash a e
   assert.deepEqual(list, []);
   // L'entrée fantôme a été retirée de l'index au passage.
   assert.deepEqual(await fake.zRange('mod:reports', 0, -1), []);
-});
-
-test('scanText : détecte un terme interdit, insensible à la casse et aux accents', () => {
-  const hit = moderation.scanText('Ceci est INTERDÎT ici');
-  assert.equal(hit.flagged, true);
-  assert.deepEqual(hit.terms, ['interdit']);
-
-  assert.equal(moderation.scanText('une ÂRNAQUE évidente').flagged, true);
-});
-
-test('scanText : ne marque pas un texte normal et ne lève jamais', () => {
-  const ok = moderation.scanText('bonjour tout le monde');
-  assert.equal(ok.flagged, false);
-  assert.deepEqual(ok.terms, []);
-
-  assert.doesNotThrow(() => moderation.scanText(null));
-  assert.equal(moderation.scanText(undefined).flagged, false);
 });
 
 test('banSession / isBanned / unbanSession : exclusion volatile best-effort', async () => {

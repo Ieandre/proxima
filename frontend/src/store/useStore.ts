@@ -50,9 +50,15 @@ type State = {
   // de l'écran et rendrait le retour impossible jusqu'au rechargement.
   homeRoom: { id: string; name: string } | null;
   // Salons chiffrés — clé secretbox + mot de passe en clair, RAM SEULE,
-  // jamais persistés (RG-01/02), perdus au reload. Le mot de passe sert au « copier le mot de passe ».
+  // jamais persistés (RG-01/02), perdus au reload. Le mot de passe sert au « copier le mot de passe »
+  // et n'existe donc qu'en régime mot de passe : un salon public n'en a aucun.
   roomKeys: Record<string, Uint8Array>;
   roomPasswords: Record<string, string>;
+  // Génération de la clé détenue, par salon en régime de GROUPE. Elle voyage avec
+  // chaque message envoyé : sans elle, un destinataire resté sur une génération
+  // antérieure ne saurait pas qu'il lui manque une clé plutôt que de constater un
+  // message corrompu. Vaut 0 en régime mot de passe (une clé dérivée n'a pas de génération).
+  roomKeyEpochs: Record<string, number>;
 
   // Fils de discussion
   threads: Record<string, Message[]>; // clé = convKey
@@ -98,6 +104,7 @@ type State = {
   setHomeRoom: (room: { id: string; name: string } | null) => void;
   upsertJoinedRoom: (room: JoinedRoom) => void;
   setRoomKey: (roomId: string, key: Uint8Array, password: string) => void;
+  setGroupKey: (roomId: string, key: Uint8Array, epoch: number) => void;
   setRoomMembers: (roomId: string, members: RoomMember[], owner: string) => void;
   removeJoinedRoom: (roomId: string) => void;
 
@@ -131,6 +138,7 @@ const initial = {
   homeRoom: null as { id: string; name: string } | null,
   roomKeys: {} as Record<string, Uint8Array>,
   roomPasswords: {} as Record<string, string>,
+  roomKeyEpochs: {} as Record<string, number>,
   threads: {} as Record<string, Message[]>,
   unread: {} as Record<string, number>,
   mentioned: {} as Record<string, boolean>,
@@ -171,6 +179,20 @@ export const useStore = create<State>((set, get) => ({
       roomKeys: { ...s.roomKeys, [roomId]: key },
       roomPasswords: { ...s.roomPasswords, [roomId]: password },
     })),
+  /**
+   * Clé d'un salon PUBLIC. Aucun mot de passe à retenir — il n'y en a pas — mais une
+   * génération, que l'on n'écrase JAMAIS par une plus ancienne : les remises arrivent
+   * de plusieurs membres sollicités en parallèle, et une réponse tardive portant la
+   * génération d'avant remettrait le salon dans le noir.
+   */
+  setGroupKey: (roomId, key, epoch) =>
+    set((s) => {
+      if ((s.roomKeyEpochs[roomId] || 0) > epoch) return {};
+      return {
+        roomKeys: { ...s.roomKeys, [roomId]: key },
+        roomKeyEpochs: { ...s.roomKeyEpochs, [roomId]: epoch },
+      };
+    }),
   setRoomMembers: (roomId, members, owner) =>
     set((s) => {
       const r = s.joinedRooms[roomId];
@@ -184,12 +206,14 @@ export const useStore = create<State>((set, get) => ({
       // Purge de la clé et du mot de passe en RAM (RG-01/02).
       const roomKeys = { ...s.roomKeys };
       const roomPasswords = { ...s.roomPasswords };
+      const roomKeyEpochs = { ...s.roomKeyEpochs };
       delete roomKeys[roomId];
       delete roomPasswords[roomId];
+      delete roomKeyEpochs[roomId];
       const active = s.active && s.active.kind === 'room' && s.active.id === roomId ? null : s.active;
       // `homeRoom` n'est PAS effacé : sorti de son salon de région, on doit encore le
       // voir dans la liste (en gris) pour pouvoir y revenir.
-      return { joinedRooms, roomKeys, roomPasswords, active };
+      return { joinedRooms, roomKeys, roomPasswords, roomKeyEpochs, active };
     }),
 
   pushMessage: (key, msg) => {

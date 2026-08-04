@@ -34,7 +34,7 @@ Principes directeurs :
 
 - **Zéro compte, zéro PII** — pas d'email, pas de téléphone, pas de mot de passe de compte. L'identité (pseudo, âge, ville) n'existe que pendant la session navigateur.
 - **Éphémère par construction** — tout vit en mémoire / Redis avec expiration automatique (TTL). La fermeture de l'onglet détruit la session : identité, MP, appartenance aux salons.
-- **Chiffrement de bout en bout** — les messages privés et les salons chiffrés transitent par le serveur sous forme d'enveloppes **opaques** ; le serveur ne peut pas les lire.
+- **Chiffrement de bout en bout** — les messages privés **et tous les salons, sans exception** transitent par le serveur sous forme d'enveloppes **opaques** ; le serveur ne peut pas les lire.
 - **Pas de pistage** — aucun tracker tiers, aucune analytics externe, aucune adresse IP journalisée en clair.
 
 > Le fonctionnement interne est documenté de bout en bout dans [`DOCUMENTATION-TECHNIQUE.md`](./DOCUMENTATION-TECHNIQUE.md).
@@ -63,15 +63,19 @@ Trois classes de salons :
 
 | Type | Visibilité | Accès | Contenu |
 |------|-----------|-------|---------|
-| **Public** | Listé | Libre | En clair (modérable) |
-| **Privé sur invitation** | Listé | Mot de passe **ou** lien d'invitation | En clair (modérable) |
+| **Public** | Listé | Libre | **Chiffré E2E** (clé de groupe transmise entre membres) |
+| **Privé sur invitation** | Non listé | Lien d'invitation **ou** mot de passe de salon | **Chiffré E2E** (clé de groupe) |
 | **Privé chiffré à mot de passe** | Listé (nom public) | Mot de passe figé à la création | **Chiffré E2E** (Argon2id → `crypto_secretbox`) |
 
-- **Entrer est un clic, et ne s'annonce pas.** Aucune arrivée n'est diffusée dans aucun salon : la présence se lit dans la liste des présents, pas en interrompant la conversation. On peut donc regarder un salon avant d'y parler sans que cela coûte quoi que ce soit à personne. Seul un salon chiffré demande un temps d'arrêt — son mot de passe, dont la clé se dérive sur l'appareil.
+Aucun salon ne circule en clair. La **porte** (qui peut entrer) et la **clé** (qui peut
+lire) sont deux choses distinctes : le mot de passe d'un salon privé sur invitation reste
+une porte vérifiée par le serveur, sans devenir pour autant la clé du contenu.
+
+- **Entrer est un clic, et ne s'annonce pas.** Aucune arrivée n'est diffusée dans aucun salon : la présence se lit dans la liste des présents, pas en interrompant la conversation. On peut donc regarder un salon avant d'y parler sans que cela coûte quoi que ce soit à personne. Seul un salon à mot de passe demande un temps d'arrêt — celui dont la clé se dérive sur l'appareil ; un salon public, chiffré lui aussi, s'ouvre d'un clic (sa clé lui est remise par les membres présents).
 - **Sortir n'est annoncé que si l'on a parlé.** Qui n'a fait que passer repart comme il est venu ; qui participait ne laisse pas ses interlocuteurs parler dans le vide. La condition ne vit que dans la connexion, et meurt avec l'onglet.
 - **Gouvernance** : le créateur est propriétaire (exclure un membre, fermer le salon, changer le mot de passe). Le départ du propriétaire transfère le rôle au plus ancien participant présent (RG-06). Un salon vide est supprimé immédiatement (RG-05).
 - **Salons permanents** : salons de référence amorcés au démarrage depuis un fichier JSON ([`server/data/permanent-rooms.json`](./server/data/permanent-rooms.json)).
-- Les salons chiffrés ont un **plafond de membres** (défaut 16) pour borner la diffusion d'un espace non modérable.
+- Les salons **à mot de passe** ont un **plafond de membres** (défaut 16) pour borner la diffusion d'un espace non modérable. Les salons publics, eux, ne sont pas plafonnés : leur clé étant remise à quiconque entre, elle ne ferme rien — voir la note de fin de section *Modération*.
 
 ### Mentions
 Dans un salon, taper `@` propose les **présents** ; le pseudo choisi s'insère dans le message.
@@ -93,15 +97,13 @@ Pas de barre d'outils : on tape le balisage, il est interprété à l'affichage 
 Disponible dans les MP comme dans les salons : le message cité s'affiche en tête de la bulle, et un clic dessus ramène à l'original.
 
 - **Seule la référence circule**, jamais l'extrait cité : chaque client résout la citation dans son propre fil. Un arrivant ne se voit donc pas servir un fragment de message antérieur à son arrivée — l'absence d'historique (RG-01) vaut aussi pour les citations.
-- En **MP** et en **salon chiffré**, l'identifiant du message et la référence de réponse sont **scellés dans l'enveloppe** ([`frontend/src/lib/body.ts`](./frontend/src/lib/body.ts)) : le serveur ne peut pas reconstruire le graphe des réponses d'une conversation qu'il ne peut pas lire (RG-07).
-- En **salon en clair**, seul l'identifiant du message cité transite — le serveur le relaie sans le stocker ni le vérifier.
+- L'identifiant du message et la référence de réponse sont **scellés dans l'enveloppe** ([`frontend/src/lib/body.ts`](./frontend/src/lib/body.ts)), en MP comme en salon : le serveur ne peut pas reconstruire le graphe des réponses d'une conversation qu'il ne peut pas lire (RG-07). Une référence posée en clair dans le payload est ignorée.
 
 ### Modification d'un message
 On retouche ses propres mots — une faute de frappe, une heure fausse — dans les MP comme dans les salons. Le texte d'origine revient dans le champ de saisie, la bulle concernée reste désignée pendant qu'on la réécrit, et la nouvelle version se signale par un « modifié » que personne ne peut retirer.
 
 - **Le serveur ne peut pas dire qui a écrit quoi** : il ne conserve aucun message. Ce sont donc les **destinataires** qui autorisent la modification, en comparant l'auteur attesté par la connexion (`fromId`, jamais choisi par le client) à celui du message visé dans leur propre fil. Tenir côté serveur une table « message → auteur », même à TTL court, n'apporterait aucune garantie de plus — un client modifié affiche ce qu'il veut sur son écran — et ajouterait précisément la trace que le projet refuse.
 - **En MP**, l'identifiant du message retouché est **scellé dans l'enveloppe** : le serveur ne sait pas même *lequel* est modifié. En **salon chiffré**, l'enveloppe est relayée telle quelle.
-- **En salon en clair**, le nouveau texte **repasse par le filtre de mots-clés**, sous le même identifiant de message. Sans cela, écrire un message anodin puis le remplacer serait le moyen le plus simple de passer sous la modération.
 - **Un retrait de la modération ne se défait pas** : une bulle retirée est verrouillée, son auteur ne peut plus la réécrire.
 - Un message modifié **ne fait sonner personne** et ne recrée pas de non-lu : ajouter un `@pseudo` après coup met bien le nom en évidence, mais n'alerte pas — sinon la modification deviendrait une sonnette.
 
@@ -151,7 +153,7 @@ chat/
 │   │
 │   ├── domain/                 # Métier pur — ne connaît pas Socket.IO
 │   │   ├── sessions.js         # Sessions volatiles + profils publics
-│   │   ├── rooms.js            # Cycle de vie des salons (création, membres, chiffrés)
+│   │   ├── rooms.js            # Cycle de vie des salons (création, membres, régimes de clé)
 │   │   ├── geo.js              # Présence géospatiale (rayon 75 km)
 │   │   ├── cities.js           # Géocodage hors-ligne des communes + autocomplétion (nom ou code postal)
 │   │   ├── moderation.js       # Signalements, exclusions, incidents (DSA/RGPD)
@@ -165,7 +167,7 @@ chat/
 │   │   ├── pm.js               # pm:send, pm:key (enveloppes E2E opaques)
 │   │   ├── pm-invites.js       # pm:invite:create/peek/claim/accept/revoke
 │   │   ├── rooms.js            # room:create/list/peek/join/leave
-│   │   ├── messages.js         # room:message (clair + chiffré, filtre de mots-clés)
+│   │   ├── messages.js         # room:message / room:edit (relais d'enveloppes opaques)
 │   │   ├── governance.js       # room:kick/close/password (propriétaire, RG-06)
 │   │   └── reports.js          # pm:report, room:report (DSA art.16)
 │   │
@@ -236,10 +238,10 @@ Le serveur charge `.env` via `node --env-file=.env` (scripts `start` / `dev`). T
 | `RADIUS_KM` | `75` | Rayon de présence de proximité. |
 | `MIN_AGE` | `18` | Âge minimum déclaratif. |
 | `SESSION_TTL` | `90` | TTL d'une session (s), rafraîchi par heartbeat. |
-| `ENCRYPTED_ROOM_MAX_MEMBERS` | `16` | Plafond de membres d'un salon chiffré. |
+| `ENCRYPTED_ROOM_MAX_MEMBERS` | `16` | Plafond de membres d'un salon à **mot de passe** (les salons publics chiffrés ne sont pas plafonnés). |
+| `ROOM_KEY_RESPONDERS` | `3` | Membres sollicités pour servir la clé d'un salon public à un arrivant. |
 | `IP_SALT_ROTATE_MS` | `300000` | Période de rotation du sel de hachage IP. |
 | `RL_WINDOW_SEC` / `RL_MAX` | `10` / `30` | Fenêtre et plafond de l'anti-spam (messages / hash IP). |
-| `MOD_KEYWORDS` | *(vide)* | Mots-clés du filtre de modération non bloquant (salons publics). |
 | `HSTS` | `0` | `1` pour activer l'en-tête HSTS (uniquement derrière TLS). Jamais émis sur l'onion. |
 | `ONION_HOST` | *(vide)* | Adresse du service onion Tor. Vide ⇒ aucune annonce. **En prod : dans l'unité systemd**, pas dans `.env`. |
 | `ONION_RL_GLOBAL_MAX` | `RL_MAX × 50` | Plafond global de l'anti-spam pour le trafic onion. |
@@ -301,6 +303,7 @@ npm run build       # tsc + vite build
 ### Chiffrement de bout en bout
 - **Messages privés** : paire de clés X25519 générée à chaque session côté client (`crypto_box`, X25519 + XSalsa20-Poly1305). La clé privée ne quitte jamais le navigateur. Le serveur relaie une enveloppe opaque `{ n, c, pub }`.
 - **Salons chiffrés à mot de passe** : dérivation **Argon2id** du mot de passe → clé `crypto_secretbox` (jamais transmise) + `verifier` (preuve d'accès transmise au serveur). Le serveur ne voit jamais le mot de passe, ni la clé, ni le contenu.
+- **Tous les autres salons** (publics, région, permanents, privés sur invitation) : pas de mot de passe dont dériver la clé — c'est un secret **aléatoire** détenu par les seuls membres, qui se la transmettent **enveloppée en `crypto_box`** pour la clé publique du destinataire. Le serveur met les membres en relation et transporte des enveloppes opaques ; il ne voit jamais la clé. Le premier arrivant d'un salon vide l'engendre ; quand tous les porteurs sont partis, la génération suivante repart d'une clé neuve.
 - **Bourrage à taille fixe** (256 octets) avant chiffrement : la taille du ciphertext ne révèle pas la longueur du message (anti analyse de trafic).
 - **Safety number** : empreinte canonique des deux clés publiques, comparable hors-bande pour détecter un MITM.
 
@@ -327,12 +330,14 @@ npm run build       # tsc + vite build
 Un socle minimal de gouvernance, sans renoncer au *privacy by design* :
 
 - **Signalement** (DSA art. 16 *notice-and-action*) : sur un message de salon ou un MP. Sur un contenu chiffré, le clair est fourni **volontairement** par le signaleur et marqué `unverified` (le serveur reste aveugle).
-- **Filtre de mots-clés** non bloquant sur les salons publics uniquement (jamais sur les MP, RG-07) : un match crée un signalement pour l'opérateur sans bloquer la diffusion.
+- **Aucun filtre automatique** : le serveur ne voit aucun contenu, il n'a rien à analyser. Tout signalement est donc marqué **non vérifié** — c'est une propriété du système, pas un défaut de réglage.
 - **Console opérateur** (`/operator`, namespace Socket.IO `/admin`) protégée par `OPERATOR_SECRET` : consultation des signalements, retrait de contenu, exclusion volatile.
 - **Préservation prospective bornée** : l'opérateur peut « geler » le sel IP (jamais rétroactivement), avec retour automatique au sel rotatif — exception explicite et plafonnée à RG-08.
 - **Pages juridiques** : point de contact et mentions légales servis via `/api/legal`.
 
-> ℹ️ La réserve « validation juridique préalable à toute mise en production » qui portait sur les salons privés chiffrés à mot de passe a été **levée le 2026-08-03**. La posture DSA reste inchangée (art. 8 : aucun scan du contenu chiffré ; art. 16 : signalement et retrait best-effort ; plafond de membres comme limitation de diffusion proportionnée).
+> ℹ️ La réserve « validation juridique préalable à toute mise en production » qui portait sur les salons privés chiffrés à mot de passe a été **levée le 2026-08-03**. Le chiffrement a ensuite été **étendu à tous les salons** le 2026-08-04 — d'abord les publics (région et permanents inclus), puis les privés sur invitation.
+>
+> Ce que cela change, dit franchement : il n'y a **plus aucune détection automatique** de contenu, nulle part — la modération est intégralement pilotée par les signalements (art. 16), et le retrait reste ciblé et *best-effort*. Ce que le chiffrement protège : le contenu est hors de portée de **l'hébergeur**. Ce qu'il ne protège pas : **quiconque franchit la porte d'un salon en reçoit la clé**, ce qui est aussi la raison pour laquelle tout signaleur peut fournir le clair qu'il a lu.
 
 ---
 

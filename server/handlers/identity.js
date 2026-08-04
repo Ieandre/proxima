@@ -26,7 +26,7 @@ const rooms = require('../domain/rooms');
  *
  * @returns {Promise<{room: object, owner: string, members: object[]}|null>}
  */
-async function joinRegionRoom(socket, id, geoCity) {
+async function joinRegionRoom(socket, id, geoCity, arrangeGroupKey) {
   try {
     const regionName = cities.regionLabel(geoCity.country, geoCity.region);
     const regionSlug = await rooms.ensureRegionRoom({
@@ -41,17 +41,24 @@ async function joinRegionRoom(socket, id, geoCity) {
     socket.data.rooms.add(regionSlug);
     const room = await rooms.getRoom(regionSlug);
     const members = await rooms.memberProfiles(regionSlug);
+    /**
+     * Un salon de région est PUBLIC, donc chiffré en régime de groupe — et on y entre
+     * par ici, jamais par `room:join`. Sans cette coordination, l'arrivant n'aurait
+     * aucun moyen d'obtenir la clé et son propre salon de région resterait illisible.
+     * Après `addMember`, pour que les porteurs sollicités puissent lui répondre.
+     */
+    const keyInfo = await arrangeGroupKey(room, id);
     // Pas de message système « est entré·e » : l'entrée dans le salon de région
     // est automatique. La composition est rafraîchie via
     // broadcastMembers par l'appelant — les présents voient le membre apparaître.
-    return { room: rooms.toPublic(room), owner: room.owner, members };
+    return { room: rooms.toPublic(room), owner: room.owner, members, ...keyInfo };
   } catch (err) {
     console.error('[identify:region]', err.message);
     return null;
   }
 }
 
-function register({ io, socket, sid, limited, pushLobby, broadcastMembers }) {
+function register({ io, socket, sid, limited, pushLobby, broadcastMembers, arrangeGroupKey }) {
   socket.on('identify', async (payload = {}, cb) => {
     try {
       if (sid()) return ack(cb, { error: 'Session déjà active.' });
@@ -106,7 +113,7 @@ function register({ io, socket, sid, limited, pushLobby, broadcastMembers }) {
         pub,
       });
 
-      const homeRoom = await joinRegionRoom(socket, id, geoCity);
+      const homeRoom = await joinRegionRoom(socket, id, geoCity, arrangeGroupKey);
 
       // `onion` n'est PAS dans `me` : c'est un état de la connexion, visible de
       // soi seul et jamais diffusé aux autres présents.

@@ -23,9 +23,19 @@ export type RoomEntry = {
   region: boolean;
   /** Salon permanent défini par l'administrateur. */
   official: boolean;
+  /**
+   * Chiffré de bout en bout. Vrai pour tout salon listé désormais : les publics le sont
+   * en régime de groupe (clé transmise entre membres), les privés à mot de passe en
+   * régime dérivé. Ne dit donc plus rien sur la façon d'y ENTRER — c'est `locked` qui le dit.
+   */
   encrypted: boolean;
+  /**
+   * L'entrée réclame un mot de passe (régime de clé dérivée). C'est ce qui distingue un
+   * salon fermé d'un salon simplement illisible par l'hébergeur.
+   */
+  locked: boolean;
   private: boolean;
-  /** Sel Argon2id public — nécessaire pour dériver la clé à l'entrée d'un salon chiffré. */
+  /** Sel Argon2id public — nécessaire pour dériver la clé à l'entrée d'un salon à mot de passe. */
   salt?: string;
   /** Vous êtes le seul présent : sortir efface le salon (RG-05, sauf permanent). */
   alone: boolean;
@@ -118,6 +128,7 @@ export function buildRoomList({
       region: room.id === homeRoom?.id,
       official: !!listed?.persistent,
       encrypted: !!room.encrypted,
+      locked: (room.keyMode || listed?.keyMode) === 'password',
       private: room.type === 'private',
       salt: room.salt || listed?.salt,
       alone: room.members.length <= 1 && !listed?.persistent,
@@ -134,6 +145,7 @@ export function buildRoomList({
       region: r.id === homeRoom?.id,
       official: !!r.persistent,
       encrypted: !!r.encrypted,
+      locked: r.keyMode === 'password',
       private: r.type === 'private',
       salt: r.salt,
       alone: false,
@@ -152,7 +164,9 @@ export function buildRoomList({
       count: null,
       region: true,
       official: true,
-      encrypted: false,
+      // Salon de région : public, donc chiffré comme les autres — mais son entrée est libre.
+      encrypted: true,
+      locked: false,
       private: false,
       alone: false,
     });

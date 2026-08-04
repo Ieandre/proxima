@@ -146,22 +146,27 @@ describe('E2E — salons publics', () => {
     assert.ok(comp.members.some((m) => m.pseudo === 'Bob'));
     assert.deepEqual(sysOnOwner, [], 'entrer ne dit rien aux présents');
 
-    // Un message du membre est diffusé au propriétaire, avec un id serveur.
+    // Un salon public est chiffré en régime de groupe : on y parle par ENVELOPPE, et
+    // l'époque de la clé voyage avec elle. Le serveur relaie sans rien pouvoir lire.
+    const env = { n: 'NONCE', c: 'CIPHER' };
     const msgOnOwner = once(owner, 'room:message');
-    member.emit('room:message', { roomId, text: 'bonjour à tous' });
+    member.emit('room:message', { roomId, env, ke: 1 });
     const msg = await msgOnOwner;
-    assert.equal(msg.text, 'bonjour à tous');
-    assert.equal(msg.kind, 'text');
+    assert.equal(msg.enc, '1');
+    assert.deepEqual(msg.env, env, 'enveloppe relayée telle quelle');
+    assert.equal(msg.ke, 1);
+    assert.equal('text' in msg, false, 'aucun clair ne traverse le serveur');
     assert.ok(msg.id, 'id de message généré côté serveur');
 
     // Sa modification revient à tout le salon sous le MÊME identifiant : c'est ce
     // qui permet à chaque client de retrouver la bulle à réécrire, et à l'auteur
     // attesté (`fromId`) d'être comparé à celui du message visé.
+    const env2 = { n: 'NONCE2', c: 'CIPHER2' };
     const editOnOwner = once(owner, 'room:edited');
-    member.emit('room:edit', { roomId, messageId: msg.id, text: 'bonjour à toutes et à tous' });
+    member.emit('room:edit', { roomId, messageId: msg.id, env: env2, ke: 1 });
     const edited = await editOnOwner;
     assert.equal(edited.messageId, msg.id);
-    assert.equal(edited.text, 'bonjour à toutes et à tous');
+    assert.deepEqual(edited.env, env2);
     assert.equal(edited.fromId, msg.fromId);
   });
 
@@ -188,7 +193,7 @@ describe('E2E — salons publics', () => {
     await identify(bavard, { pseudo: 'Carol', pub: 'PUB_CAROL' });
     await rpc(bavard, 'room:join', { roomId });
     const echo = once(owner, 'room:message');
-    bavard.emit('room:message', { roomId, text: 'je repasse plus tard' });
+    bavard.emit('room:message', { roomId, env: { n: 'N', c: 'C' }, ke: 1 });
     await echo;
     const adieu = once(owner, 'room:system');
     bavard.emit('room:leave', { roomId });
@@ -259,6 +264,64 @@ describe('E2E — salon chiffré (relais opaque de bout en bout)', () => {
     assert.equal(msg.enc, '1');
     assert.deepEqual(msg.env, env);
     assert.equal('text' in msg, false);
+  });
+});
+
+describe('E2E — clé de groupe d\'un salon public (le serveur ne fait que transporter)', () => {
+  test('le porteur est sollicité, sert la clé enveloppée, et l\'arrivant la reçoit', async () => {
+    const owner = await client();
+    await identify(owner, { pseudo: 'Alice' });
+    const create = await rpc(owner, 'room:create', { name: 'Clé E2E', type: 'public' });
+    // Le créateur est seul : c'est lui qui engendre la première génération.
+    assert.equal(create.room.keyMode, 'group');
+    assert.equal(create.genesis, true);
+    assert.equal(create.room.keyEpoch, 1);
+    const roomId = create.room.id;
+
+    const arrivant = await client();
+    const ackArrivant = await identify(arrivant, { pseudo: 'Bob', pub: 'PUB_BOB' });
+
+    // Son entrée déclenche une sollicitation du porteur — avec sa clé PUBLIQUE, rien d'autre.
+    const askOnOwner = once(owner, 'room:key:request');
+    const join = await rpc(arrivant, 'room:join', { roomId });
+    assert.equal(join.ok, true);
+    assert.equal(join.genesis, undefined, 'un porteur est là : rien à engendrer');
+    assert.equal(join.keyEpoch, 1);
+
+    const ask = await askOnOwner;
+    assert.equal(ask.roomId, roomId);
+    assert.equal(ask.epoch, 1);
+    assert.equal(ask.toId, ackArrivant.me.id);
+    assert.equal(ask.toPub, 'PUB_BOB');
+
+    // Le porteur répond ; l'enveloppe traverse le serveur sans être touchée.
+    const wrapped = { n: 'NONCE', c: 'CLE_ENVELOPPEE', pub: 'PUB_ALICE' };
+    const deliverOnArrivant = once(arrivant, 'room:key:deliver');
+    owner.emit('room:key:send', { roomId, toId: ask.toId, epoch: 1, env: wrapped });
+    const got = await deliverOnArrivant;
+    assert.deepEqual(got.env, wrapped, 'enveloppe relayée telle quelle');
+    assert.equal(got.epoch, 1);
+    assert.equal(got.roomId, roomId);
+  });
+
+  test('la clé n\'est jamais remise à qui n\'est pas membre', async () => {
+    const owner = await client();
+    await identify(owner, { pseudo: 'Alice' });
+    const create = await rpc(owner, 'room:create', { name: 'Clé fermée', type: 'public' });
+
+    const dehors = await client();
+    const ackDehors = await identify(dehors, { pseudo: 'Bob', pub: 'PUB_BOB' });
+
+    let recu = false;
+    dehors.on('room:key:deliver', () => {
+      recu = true;
+    });
+    owner.emit('room:key:send', {
+      roomId: create.room.id, toId: ackDehors.me.id, epoch: 1, env: { n: 'N', c: 'C', pub: 'P' },
+    });
+    // Rien ne doit venir : on laisse au serveur le temps de ne pas répondre.
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(recu, false, 'annoncer un identifiant ne suffit pas à obtenir la clé');
   });
 });
 

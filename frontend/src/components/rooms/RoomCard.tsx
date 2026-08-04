@@ -29,7 +29,7 @@ import { Icon, Modal } from '../ui';
 export type RoomCardMode = 'enter' | 'leave';
 
 /** Le strict nécessaire pour décrire un salon : une entrée de liste, ou un pré-vol de lien. */
-export type RoomCardTarget = Pick<RoomEntry, 'id' | 'name' | 'region' | 'official' | 'encrypted' | 'private'> &
+export type RoomCardTarget = Pick<RoomEntry, 'id' | 'name' | 'region' | 'official' | 'encrypted' | 'locked' | 'private'> &
   Partial<Pick<RoomEntry, 'count' | 'salt' | 'alone'>>;
 
 export function RoomCard({
@@ -105,10 +105,13 @@ export function RoomCard({
   }
 
   const pseudo = me?.pseudo || 'Vous';
-  const nature = room.encrypted
-    ? 'Chiffré de bout en bout'
-    : room.region
-      ? 'Salon de votre région'
+  // La nature dit ce QU'EST le salon. Le chiffrement n'en fait plus partie : tous le
+  // sont, et l'annoncer ici évincerait la seule information que la fiche donnait
+  // (région, privé, public). Il est dit plus bas, avec sa portée exacte.
+  const nature = room.region
+    ? 'Salon de votre région'
+    : room.locked
+      ? 'Salon privé chiffré'
       : room.private
         ? 'Salon privé'
         : 'Salon public';
@@ -161,7 +164,16 @@ export function RoomCard({
         {mode === 'leave' && room.alone && (
           <Note icon="clock">Vous êtes seul·e ici : le salon disparaîtra en sortant.</Note>
         )}
-        {mode === 'leave' && room.encrypted && (
+        {/* Ce que le chiffrement d'un salon PUBLIC protège, dit sans le survendre : il met
+            le contenu hors de portée de l'hébergeur, et de personne d'autre — puisque
+            entrer suffit pour recevoir la clé. */}
+        {mode === 'enter' && room.encrypted && !room.locked && (
+          <Note icon="lock">
+            Chiffré de bout en bout : l’hébergeur ne peut pas lire ce salon. Toute personne qui y entre, en revanche,
+            en reçoit la clé.
+          </Note>
+        )}
+        {mode === 'leave' && room.locked && (
           <Note icon="key">Il faudra ressaisir le mot de passe pour revenir.</Note>
         )}
       </div>

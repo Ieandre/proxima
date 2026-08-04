@@ -69,7 +69,8 @@ function register({ socket, sid, limited, notifyReport }) {
       reporterId: id,
       reporterPseudo: me ? me.pseudo : '?',
       reason: clamp(payload.reason, 20),
-      source: room && room.encrypted ? 'reporter-cleartext' : 'reporter',
+      // Tout salon est chiffré : le clair vient TOUJOURS du signaleur, jamais du serveur.
+      source: 'reporter-cleartext',
     });
     if (report) await notifyReport(report);
     ack(cb, { ok: true }); // doublon (report === null) : on confirme quand même au signaleur

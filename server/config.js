@@ -50,10 +50,15 @@ module.exports = {
     refreshMs: num(process.env.METRICS_REFRESH_MS, 5000),
   },
 
-  // Salons — plafond de membres d'un salon chiffré : borne la
-  // diffusion d'un espace de groupe non modérable (posture DSA art.8/art.16).
   rooms: {
+    // Plafond de membres d'un salon à MOT DE PASSE : borne la diffusion d'un espace de
+    // groupe non modérable. Ne s'applique qu'à ce régime — un salon en régime de groupe
+    // (public ou privé sur invitation) n'est pas plafonné, sa clé ne gardant pas l'entrée.
     encryptedMaxMembers: num(process.env.ENCRYPTED_ROOM_MAX_MEMBERS, 16),
+    // Membres sollicités pour servir la clé d'un salon public à un arrivant. Plus d'un
+    // pour ne pas dépendre d'un membre injoignable ; l'arrivant retient la première
+    // réponse valide, les autres coûtent une petite enveloppe chacune.
+    keyResponders: num(process.env.ROOM_KEY_RESPONDERS, 3),
   },
 
   // Sécurité IP : jamais de log en clair, hash salé à sel rotatif et TTL court (RG-08, §5.1).
@@ -107,12 +112,10 @@ module.exports = {
   operatorSecret: process.env.OPERATOR_SECRET || '',
   // Point de contact publié (DSA art.11-12). Canal opérateur hors-application, distinct du zéro-PII utilisateur.
   contactEmail: process.env.CONTACT_EMAIL || 'proximachat@proton.me',
+  // Aucun filtre de mots-clés n'est configurable : tout salon étant chiffré, le serveur
+  // ne voit aucun contenu à analyser. La modération passe intégralement par le
+  // signalement (DSA art.16).
   moderation: {
-    // Filtre de mots-clés NON bloquant, salons publics uniquement (jamais sur les MP, RG-07).
-    keywords: (process.env.MOD_KEYWORDS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
     // Plafond de gel du sel IP pour une préservation prospective (exception bornée à RG-08).
     saltFreezeMaxSec: num(process.env.SALT_FREEZE_MAX_SEC, 72 * 3600),
   },

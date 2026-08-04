@@ -82,7 +82,10 @@ export function Sidebar() {
    */
   async function enterRoom(r: RoomEntry) {
     if (r.here) return setActive({ kind: 'room', id: r.id });
-    if (r.encrypted) return setCard({ id: r.id, mode: 'enter' });
+    // Seul un salon VERROUILLÉ passe par la carte : elle n'y sert qu'à réclamer le mot
+    // de passe. Un salon public est chiffré lui aussi, mais sa clé ne s'y demande pas —
+    // elle lui sera remise par un membre, et le clic doit donc entrer directement.
+    if (r.locked) return setCard({ id: r.id, mode: 'enter' });
     if (joining) return;
     setJoining(r.id);
     const res = await joinRoom({ roomId: r.id });

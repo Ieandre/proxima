@@ -53,7 +53,12 @@ function register({ io, socket, sid, pushLobby, broadcastMembers }) {
     const room = await rooms.getRoom(roomId);
     if (!room) return ack(cb, { error: 'Salon introuvable.' });
     if (room.owner !== id) return ack(cb, { error: 'Action réservée au propriétaire.' });
-    if (room.encrypted) return ack(cb, { error: 'Salon chiffré : mot de passe figé à la création.' });
+    // Ordre des refus : le régime de clé d'abord, le type ensuite. Un salon public est
+    // chiffré lui aussi désormais, mais son refus tient à ce qu'il est public — pas à
+    // un mot de passe qu'il n'a jamais eu.
+    if (room.keyMode === 'password') {
+      return ack(cb, { error: 'Salon chiffré : mot de passe figé à la création.' });
+    }
     if (room.type !== 'private') return ack(cb, { error: 'Salon public : pas de mot de passe.' });
     await rooms.setPassword(roomId, password);
     ack(cb, { ok: true });

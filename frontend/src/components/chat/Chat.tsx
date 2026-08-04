@@ -48,12 +48,15 @@ export function Chat() {
         useStore.getState().showToast(res.error || 'Salon introuvable ou fermé.', 'warn');
         return;
       }
-      if (res.encrypted && res.salt) {
+      // Seul un salon à MOT DE PASSE demande une fiche avant d'entrer : il faut y dériver
+      // la clé. Un salon public est chiffré aussi, mais rien ne s'y saisit — on entre.
+      if (res.keyMode === 'password' && res.salt) {
         setPending({
           id: r,
           name: res.name || 'Salon',
           salt: res.salt,
           encrypted: true,
+          locked: true,
           private: true,
           region: false,
           official: false,

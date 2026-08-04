@@ -222,3 +222,41 @@ export function encryptRoomBytes(key: Uint8Array, bytes: Uint8Array): { nonce: s
 export function decryptRoomBytes(key: Uint8Array, nonceB64: string, cipher: Uint8Array): Uint8Array {
   return sodium.crypto_secretbox_open_easy(cipher, sodium.from_base64(nonceB64, B64()), key);
 }
+
+/**
+ * CLÉ DE GROUPE des salons publics.
+ *
+ * Un salon public n'a pas de mot de passe : sa clé ne se dérive de rien, c'est un
+ * secret aléatoire que se transmettent les membres. Le premier arrivant l'engendre,
+ * puis chaque nouvel arrivant se la fait remettre par un membre, enveloppée en
+ * `crypto_box` pour sa clé publique de session — donc illisible par le serveur qui
+ * la relaie. Le chiffrement du fil lui-même est inchangé : `encryptRoom`/`decryptRoom`
+ * ne s'intéressent pas à l'origine de la clé qu'on leur donne.
+ *
+ * Ce que cela protège, et ce que cela ne protège pas : le salon étant public,
+ * quiconque peut y entrer et obtenir la clé. La confidentialité vaut face à
+ * l'hébergeur, jamais face aux participants.
+ */
+
+/** Engendre une clé de groupe (secretbox, 32 octets). */
+export function genGroupKey(): Uint8Array {
+  if (!ready) throw new Error('crypto non initialisé');
+  return sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES);
+}
+
+/** Enveloppe la clé de groupe à destination d'un membre, identifié par sa clé publique. */
+export function wrapGroupKey(peerPubB64: string, key: Uint8Array): Envelope {
+  return encryptFor(peerPubB64, sodium.to_base64(key, B64()));
+}
+
+/**
+ * Ouvre une enveloppe de clé de groupe. Lève si le MAC est invalide (enveloppe
+ * forgée ou destinée à un autre) — l'appelant écarte alors la remise et attend la
+ * suivante. La longueur est vérifiée : une enveloppe valide mais qui ne contient pas
+ * une clé de la bonne taille rendrait tout le fil silencieusement illisible.
+ */
+export function unwrapGroupKey(env: Envelope): Uint8Array {
+  const key = sodium.from_base64(decryptFrom(env), B64());
+  if (key.length !== sodium.crypto_secretbox_KEYBYTES) throw new Error('clé de groupe de taille invalide');
+  return key;
+}

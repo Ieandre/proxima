@@ -28,18 +28,6 @@ const INCIDENT_KEY = (id) => `mod:incident:${id}`;
 /** Motifs de signalement reconnus ; `minor` est prioritaire (DSA art.28). */
 const REASONS = new Set(['illegal', 'minor', 'harassment', 'spam', 'other']);
 
-/** Normalisation insensible à la casse ET aux accents (NFD + suppression des diacritiques). */
-const fold = (s) =>
-  String(s == null ? '' : s)
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase();
-
-// Paires { original, folded } pour un filtre insensible casse/accents sans désalignement d'index.
-const KEYWORDS = config.moderation.keywords
-  .map((original) => ({ original, folded: fold(original) }))
-  .filter((k) => k.folded);
-
 // ==========================================================================
 // SIGNALEMENTS (DSA art.16 notice-and-action)
 // ==========================================================================
@@ -65,6 +53,10 @@ async function createReport(report = {}) {
   const id = genId();
   const ts = Number.isFinite(report.ts) ? Number(report.ts) : Date.now();
   const source = report.source || 'reporter';
+  // Tout salon étant chiffré, le serveur n'a plus AUCUN moyen de voir un contenu par
+  // lui-même : il n'existe donc plus de signalement dont il pourrait attester le texte.
+  // `unverified` est vrai par construction, et le rester est une propriété du système,
+  // pas une valeur par défaut — c'est pourquoi il n'est plus calculé.
 
   const record = {
     id,
@@ -77,8 +69,7 @@ async function createReport(report = {}) {
     reporterPseudo: report.reporterPseudo || '',
     reason: REASONS.has(report.reason) ? report.reason : 'other',
     source,
-    // Authenticité non garantie sauf si le serveur a lui-même vu le texte (filtre).
-    unverified: source === 'filter' ? '' : '1',
+    unverified: '1',
     ts: String(ts),
   };
 
@@ -139,25 +130,6 @@ async function deleteReport(id) {
 }
 
 // ==========================================================================
-// FILTRE DE MOTS-CLÉS — non bloquant, salons publics uniquement (RG-07)
-// ==========================================================================
-
-/**
- * Analyse un texte de salon public. NE BLOQUE JAMAIS la diffusion : sert seulement
- * à marquer/signaler. Insensible à la casse et aux accents. N'est jamais appliqué aux MP.
- * @returns {{ flagged: boolean, terms: string[] }}
- */
-function scanText(text) {
-  if (KEYWORDS.length === 0) return { flagged: false, terms: [] };
-  const folded = fold(text);
-  const terms = [];
-  for (const k of KEYWORDS) {
-    if (folded.includes(k.folded)) terms.push(k.original);
-  }
-  return { flagged: terms.length > 0, terms };
-}
-
-// ==========================================================================
 // EXCLUSION VOLATILE — best-effort (RG-08 : aucun identifiant durable)
 // ==========================================================================
 
@@ -210,7 +182,6 @@ module.exports = {
   getReport,
   listReports,
   deleteReport,
-  scanText,
   banSession,
   isBanned,
   unbanSession,

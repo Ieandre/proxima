@@ -14,14 +14,26 @@ export type Person = {
   pub: string;
 };
 
+/**
+ * Régime de clé d'un salon — comment sa clé s'obtient, jamais comment son contenu
+ * circule (tout salon est chiffré) :
+ *  - `password` : clé dérivée d'un mot de passe (Argon2id + sel public), salon plafonné ;
+ *  - `group`    : clé aléatoire transmise de membre à membre, salon non plafonné.
+ *
+ * La PORTE est une question distincte : un salon en régime de groupe peut être public
+ * (aucune porte) ou privé sur invitation (jeton ou mot de passe de salon).
+ */
+export type RoomKeyMode = 'password' | 'group';
+
 export type RoomSummary = {
   id: string;
   name: string;
   type: 'public' | 'private';
   count: number;
   persistent?: boolean; // salon permanent défini par l'administrateur
-  encrypted?: boolean; // salon privé chiffré E2E à mot de passe
-  salt?: string; // sel Argon2id public — présent seulement si chiffré (dérivation directe de la clé)
+  encrypted?: boolean; // chiffré E2E — vrai pour tout salon désormais
+  keyMode?: RoomKeyMode;
+  salt?: string; // sel Argon2id public — régime mot de passe uniquement (dérivation directe de la clé)
 };
 
 export type RoomMember = { id: string; pseudo: string };
@@ -34,8 +46,10 @@ export type JoinedRoom = {
   owner: string;
   members: RoomMember[];
   invite?: string;
-  encrypted?: boolean; // salon chiffré E2E (badge distinct ; mot de passe figé)
-  salt?: string; // sel Argon2id public du salon chiffré
+  encrypted?: boolean; // salon chiffré E2E (badge distinct)
+  keyMode?: RoomKeyMode;
+  keyEpoch?: number; // génération de la clé de groupe (0 hors régime `group`)
+  salt?: string; // sel Argon2id public — régime mot de passe uniquement
 };
 
 export type MediaAttachment = {

@@ -41,10 +41,10 @@ Ces cinq contraintes structurent chaque décision technique du code :
 | Principe | Traduction technique |
 |----------|----------------------|
 | **Zéro PII persistante, tout éphémère** | Aucune base de contenu. Toute donnée qui survit a un **TTL Redis**. Redis lui-même tourne **sans persistance disque** (`save ''`, `appendonly no`). |
-| **E2E = serveur aveugle** | MP et salons chiffrés transitent en **enveloppes opaques**. Le serveur ne déchiffre jamais, ne logge jamais de clair, ne reçoit jamais mot de passe ni clé. |
+| **E2E = serveur aveugle** | MP **et tous les salons** transitent en **enveloppes opaques**. Le serveur ne déchiffre jamais, ne logge jamais de clair, ne reçoit jamais mot de passe ni clé. |
 | **IP jamais en clair** (RG-08) | Seul un **hash salé à sel rotatif** (TTL court) est manipulé, via `security.js`. Aucune IP brute journalisée ni stockée. |
 | **CSP stricte, aucun script inline** | D'où le JS de la console opérateur en fichier servi (`operator/app.js`). Aucun `<script>` inline, aucun handler `on*` inline. |
-| **Modération jamais sur les MP** (RG-07) | Le filtre mots-clés et la console opérateur n'agissent que sur les **salons publics**. |
+| **Modération jamais sur les MP** (RG-07) | La console opérateur n'agit que sur les **salons**, jamais sur les MP. Aucun filtre automatique nulle part : le serveur ne voit aucun contenu. |
 
 ### Règles métier (`RG-XX`)
 
@@ -60,7 +60,7 @@ périmètre, pas un détail d'implémentation.
 | **RG-04** | L'accès est conditionné à une déclaration de majorité (18+). |
 | **RG-05** | Un salon vide est immédiatement supprimé. |
 | **RG-06** | Le départ du propriétaire d'un salon transfère le rôle au participant le plus ancien encore présent. |
-| **RG-07** | Les MP **et les salons privés à mot de passe** sont chiffrés de bout en bout ; le serveur ne relaie que du contenu chiffré (enveloppe opaque). |
+| **RG-07** | Les MP **et tous les salons**, sans exception, sont chiffrés de bout en bout ; le serveur ne relaie **que** du contenu chiffré (enveloppe opaque). Aucun chemin en clair n'existe. |
 | **RG-08** | Aucune adresse IP n'est journalisée en clair. |
 
 ### Modèle mental
@@ -238,7 +238,9 @@ Trois clés par salon :
 - `rooms:pub` (set = index des salons listés).
 
 Fonctions clés :
-- `createRoom({name, type, password, ownerId, encrypted, verifier, salt})` : id 8 octets, invite 16 octets. Salon chiffré ⇒ **toujours privé** ; stocke `pass` (SHA-256 sel+mdp) seulement pour un privé **non chiffré**, `verifier` (preuve E2E) seulement si chiffré. Indexé dans `rooms:pub` si public **ou** chiffré (les privés sur invitation restent hors index).
+- `createRoom({name, type, password, ownerId, encrypted, verifier, salt})` : id 8 octets, invite 16 octets. Attribue le **régime de clé** (`keyMode`), qui n'a que deux valeurs : `'password'` si `encrypted` (⇒ **toujours privé**, stocke `verifier`, plafonné), `'group'` sinon (clé transmise entre membres, `keyEpoch` initialisé à 1 puisque le créateur est seul membre). `encrypted` vaut donc toujours vrai. Un privé sur invitation est en régime de groupe **et** conserve sa porte : `pass` (SHA-256 sel+mdp) reste stocké et vérifié côté serveur — c'est une porte, pas la clé du contenu. Indexé dans `rooms:pub` si public **ou** à mot de passe (les privés sur invitation restent hors index).
+- `getRoom(id)` **déduit** `keyMode` quand le champ est absent — un salon d'avant l'extension du chiffrement qui portait `encrypted` était à mot de passe, tout autre salon public passe en groupe. Ce n'est pas un confort : un salon **permanent** n'a pas de TTL, il ne s'efface jamais de lui-même et resterait en clair à vie sans cette déduction.
+- `claimKeyGenesis(id)` (`hSetNX`) / `bumpKeyEpoch(id)` (`hIncrBy`) : coordination des générations de clé de groupe. C'est **l'atomicité** qui sert de désignation — parmi plusieurs arrivants simultanés dans un salon neuf, un seul obtient la genèse.
 - `createPersistentRoom({slug, name})` : `owner: 'system'`, `persistent: '1'`, clé déterministe `room:<slug>`, **aucun `expire`** — exception à RG-05/RG-06.
 - `verifyVerifier(id, verifier)` — vérifie la preuve d'accès d'un salon chiffré **à temps constant** (`crypto.timingSafeEqual` sur les SHA-256, pour égaliser les longueurs). Le serveur ne voit jamais le mot de passe/la clé.
 - `verifyPassword`, `verifyInvite`, `addMember`/`removeMember` (réarment les TTL sauf si permanent), `memberIds` (ordonné par ancienneté), `deleteRoom`, `listPublic` (purge l'index expiré ; supprime les salons vides sauf permanents ; expose `encrypted`+`salt` public **mais jamais `verifier`** ; tri par nombre de membres décroissant).
@@ -275,10 +277,10 @@ coordonnées**. Clés Redis :
 - `mod:incident:<id>` (hash incident de réquisition prospective, TTL `incidentSec`).
 
 Fonctions : `createReport()` (DSA art.16 *notice-and-action* : dédup, snapshot, `unverified`
-sauf `source:'filter'`), `listReports(limit=50)` (récent d'abord, purge index expiré),
-`scanText(text)` (filtre mots-clés **non bloquant**, insensible casse/accents via `fold`,
-**jamais sur les MP**), `banSession`/`isBanned`, `openIncident`/`closeIncident`. `toReport()`
-**n'émet jamais de champ `ip`**.
+**toujours** vrai — le serveur ne voit aucun contenu, il ne peut en attester aucun),
+`listReports(limit=50)` (récent d'abord, purge index expiré), `banSession`/`isBanned`,
+`openIncident`/`closeIncident`. `toReport()` **n'émet jamais de champ `ip`**.
+Aucune fonction de scan : elle n'aurait rien à lire.
 
 ### `admin.js` — console opérateur (namespace `/admin`)
 Namespace Socket.IO **séparé**, authentifié par jeton unique (`config.operatorSecret`),
@@ -337,9 +339,9 @@ l'onglet suit exactement la même règle que `room:leave`.
 l'anti-spam, **jamais journalisée**.
 La liste complète des événements est au [§6](#6-référence-des-événements-socketio). Points saillants :
 - **MP (`pm:send` → `pm:recv`)** : relais d'une **enveloppe opaque** `env` (+ `data` binaire opaque si média). Rate-limité. `pm:undeliverable` si la cible est absente. Le serveur ne peut pas lire le contenu.
-- **Message de salon (`room:message`)** : l'`id` de message est **généré serveur** (non forgeable → cible du retrait ciblé). Salon **chiffré** ⇒ relais d'enveloppe opaque avec flag `enc:'1'`, **jamais de scan**. Salon **en clair** ⇒ diffusion puis `moderation.scanText` (filtre non bloquant, crée un report `source:'filter'` si match).
-- **Modification d'un message (`room:edit` → `room:edited`, `pm:edit` → `pm:edited`)** : le serveur **ne conserve aucun message** (RG-01), il n'a donc **rien à quoi comparer** `messageId` et ne peut pas vérifier que l'on est l'auteur de ce que l'on retouche. Il atteste ce qu'il sait — `fromId`, tenu de la connexion et jamais du payload — et ce sont les **destinataires** qui écartent une modification dont l'auteur revendiqué n'est pas celui du message visé (`store.editMessage`, seul détenteur du fil). Tenir une table « message → auteur », même à TTL court, n'ajouterait aucune garantie (un client modifié affiche ce qu'il veut) mais exactement la trace que le projet refuse. En salon **en clair**, le nouveau texte **repasse par `moderation.scanText`** sous le même `messageId` : sans cela, éditer serait le contournement le plus simple du filtre. En salon **chiffré** et en **MP**, l'enveloppe est relayée telle quelle — pour un MP, le serveur ignore jusqu'à **quel** message est modifié (identifiant scellé dans le corps, cf. `lib/body.ts`). Un message **retiré** par la modération n'est pas réécrivable (verrou côté client, là où l'information vit).
-- **Gouvernance** (`room:kick`/`room:close`/`room:password`) réservée au propriétaire (`ownerOf`). `password` interdit sur un salon chiffré (figé) ou public.
+- **Message de salon (`room:message`)** : un seul régime — relais d'enveloppe **opaque** avec `enc:'1'` et l'époque `ke`, **jamais de scan**. Un message **sans enveloppe est ignoré** : il n'existe aucun chemin par lequel du clair pourrait passer, et c'est volontaire. L'`id` de message est **généré serveur** (non forgeable → cible du retrait ciblé). L'époque `ke` est relayée **telle quelle depuis l'émetteur**, jamais lue sur le salon : un membre peut légitimement être resté sur une génération antérieure, et c'est l'**enveloppe** que l'époque décrit. Le serveur n'a rien à y vérifier, ne détenant aucune clé. Un `replyTo` en clair dans le payload est laissé de côté — la citation est scellée dans l'enveloppe.
+- **Modification d'un message (`room:edit` → `room:edited`, `pm:edit` → `pm:edited`)** : le serveur **ne conserve aucun message** (RG-01), il n'a donc **rien à quoi comparer** `messageId` et ne peut pas vérifier que l'on est l'auteur de ce que l'on retouche. Il atteste ce qu'il sait — `fromId`, tenu de la connexion et jamais du payload — et ce sont les **destinataires** qui écartent une modification dont l'auteur revendiqué n'est pas celui du message visé (`store.editMessage`, seul détenteur du fil). Tenir une table « message → auteur », même à TTL court, n'ajouterait aucune garantie (un client modifié affiche ce qu'il veut) mais exactement la trace que le projet refuse. En salon comme en **MP**, l'enveloppe est relayée telle quelle et une modification **sans enveloppe est ignorée** — pour un MP, le serveur ignore jusqu'à **quel** message est modifié (identifiant scellé dans le corps, cf. `lib/body.ts`). Un message **retiré** par la modération n'est pas réécrivable (verrou côté client, là où l'information vit).
+- **Gouvernance** (`room:kick`/`room:close`/`room:password`) réservée au propriétaire (`ownerOf`). `password` interdit sur un salon à **mot de passe** (figé à la création) comme sur un salon **public** — dans cet ordre, le régime de clé avant le type : un salon public est chiffré lui aussi, mais son refus tient à ce qu'il est public, pas à un mot de passe qu'il n'a jamais eu.
 - **`disconnect`** : `handleLeave` sur tous les salons, `presence:remove` aux voisins, `sessions.deleteSession` (destruction totale, RG-02).
 
 ---
@@ -354,7 +356,7 @@ Tout est volatil (TTL) sauf les salons permanents. Redis tourne sans persistance
 | `presence` | geo/zset | Index géospatial des sessions en ligne (position = ville) | — (nettoyé au `deleteSession` + purge paresseuse) | `geo.js` |
 | `room:<id>` | hash | Métadonnées salon (`name, type, owner, invite, salt, pass, verifier, encrypted, persistent`) | `roomSec` (24 h) ; **aucun** si permanent | `rooms.js` |
 | `room:<id>:members` | zset | Membres, score = ordre d'arrivée (base RG-06) | idem salon | `rooms.js` |
-| `rooms:pub` | set | Index des salons listés (public ou chiffré) | — | `rooms.js` |
+| `rooms:pub` | set | Index des salons listés (public ou à mot de passe ; le privé sur invitation en est absent) | — | `rooms.js` |
 | `rl:<hashIp>` | string | Compteur anti-spam par hash d'IP | `windowSec` (10 s) | `security.js` |
 | `mod:report:<id>` | hash | Signalement autosuffisant, **sans IP** | `reportSec` (48 h) | `moderation.js` |
 | `mod:reports` | zset | Index des signalements (score = ts) | — (purge paresseuse) | `moderation.js` |
@@ -363,7 +365,8 @@ Tout est volatil (TTL) sauf les salons permanents. Redis tourne sans persistance
 | `mod:incident:<id>` | hash | Incident de réquisition prospective | `incidentSec` (72 h) | `moderation.js` |
 
 **Ce qui n'est jamais dans Redis** : le clair d'un MP ou d'un salon chiffré, un mot de
-passe de salon en clair, une clé de chiffrement, une IP en clair.
+passe de salon en clair, une clé de chiffrement, une IP en clair. Le `pass` d'un salon
+privé sur invitation n'y est que **haché** (SHA-256 sel+mot de passe).
 
 ---
 
@@ -388,10 +391,14 @@ passe de salon en clair, une clé de chiffrement, une IP en clair.
 | `room:create` | client → serveur (ack) | `{ name, type, password?, encrypted?, verifier?, salt? }` | Crée le salon. Ack `{ room, invite?, owner, members }` |
 | `room:list` | client → serveur (ack) | — | `rooms.listPublic()` |
 | `room:peek` | client → serveur (ack) | `{ roomId }` | Pré-vol (nom + `encrypted` + `salt` public seulement) |
-| `room:join` | client → serveur (ack) | `{ roomId, password?, invite?, verifier? }` | Rejoint (vérifie ban, plafond chiffré, verifier/invite/mdp). **Aucune annonce d'arrivée** |
+| `room:join` | client → serveur (ack) | `{ roomId, password?, invite?, verifier? }` → `{ room, owner, members, genesis?, keyEpoch? }` | Rejoint (vérifie ban, puis selon le régime : plafond + `verifier` en mot de passe, invitation/mdp en privé clair, **aucune porte** en public). L'ack porte la coordination de clé de groupe. **Aucune annonce d'arrivée** |
 | `room:leave` | client → serveur | `{ roomId }` | Quitte + `announceLeave` (si l'on a parlé) + `handleLeave` |
-| `room:message` | ↔ | `{ roomId, text?/media?, enc? }` | Message (clair scanné, chiffré opaque). `id` **généré serveur** |
-| `room:edit` | client → serveur | `{ roomId, messageId, text?/env? }` | Modification d'un message diffusé (clair **rescanné**, chiffré opaque) |
+| `room:message` | ↔ | `{ roomId, env, media?, enc?, ke? }` | Message — **enveloppe obligatoire**, relais opaque. `id` **généré serveur**, `ke` = époque de la clé |
+| `room:edit` | client → serveur | `{ roomId, messageId, env, ke? }` | Modification d'un message diffusé — **enveloppe obligatoire**, relais opaque |
+| `room:key:request` | serveur → client | `{ roomId, epoch, toId, toPub }` | Un arrivant a besoin de la clé du salon public : enveloppez-la pour `toPub` |
+| `room:key:send` | client → serveur | `{ roomId, toId, epoch, env }` | Remise de la clé enveloppée. Le serveur vérifie l'appartenance **des deux** extrémités, puis relaie sans lire |
+| `room:key:deliver` | serveur → client | `{ roomId, epoch, fromId, env }` | La clé enveloppée arrive. Une enveloppe illisible est écartée sans bruit (d'autres porteurs ont été sollicités) |
+| `room:key:need` | client → serveur (ack) | `{ roomId }` → `{ genesis?, keyEpoch? }` | Réclamation de clé (jamais reçue, ou époque plus récente aperçue). Peut désigner l'appelant pour engendrer une nouvelle génération |
 | `room:edited` | serveur → client | `{ roomId, messageId, fromId, text?/env? }` | Nouvelle version. `fromId` **attesté par la connexion** ; chaque client vérifie qu'il est l'auteur du message visé |
 | `room:report` | client → serveur (ack) | `{ roomId, messageId, … }` | Signalement d'un message de salon |
 | `room:members` | serveur → client | `{ roomId, members, owner }` | Liste des membres à jour |
@@ -439,13 +446,13 @@ components/          Onboarding, Chat, Sidebar, Conversation, Composer,
 Pas de react-router : **routage par `window.location.hash`** combiné à l'état `status`.
 - `#en-savoir-plus` → `About` ; `#cgu`/`#confidentialite`/`#moderation`/`#mentions-legales` → `Legal`.
 - Sinon selon `status` : `connecting` → Splash, `onboarding`/`disconnected` → `Onboarding`, `live` → `Chat`.
-- **Auto-jonction par lien** (dans `Chat.tsx`) : `?r=<roomId>&k=<invite>` (invitation) ou `?r=<roomId>` seul (salon chiffré → `peekRoom` puis modale de mot de passe). Un mot de passe passé dans le fragment `#p=…` est lu puis **l'URL est immédiatement nettoyée** (`history.replaceState`) — le mot de passe ne part jamais au serveur.
+- **Auto-jonction par lien** (dans `Chat.tsx`) : `?r=<roomId>&k=<invite>` (invitation) ou `?r=<roomId>` seul → `peekRoom`, dont le `keyMode` décide : **mot de passe** ⇒ modale de saisie (il faut y dériver la clé), **public** ⇒ entrée directe (la clé sera remise par un membre, rien à saisir). Un mot de passe passé dans le fragment `#p=…` est lu puis **l'URL est immédiatement nettoyée** (`history.replaceState`) — le mot de passe ne part jamais au serveur.
 
 ### Store Zustand (`store/useStore.ts`)
 Un unique store, **entièrement volatil** (aucun `localStorage`, aucun middleware persist).
 State principal : `me`, `radiusKm`, `status`, `people` (présence), `pmPeers`
 (correspondants MP conservés même hors rayon), `publicRooms`, `joinedRooms`,
-`roomKeys`/`roomPasswords` (**clés de salons chiffrés en RAM seule**, purgées au
+`roomKeys`/`roomPasswords`/`roomKeyEpochs` (**clés de salons chiffrés en RAM seule**, purgées au
 leave/close, perdues au reload), `threads`, `unread`, `typing`, `active`, `toast`.
 **Découplage net** : le store ne connaît pas Socket.IO ; c'est `lib/socket.ts` qui
 importe le store (`useStore.getState()`) et appelle ses actions depuis les écouteurs.
@@ -568,14 +575,66 @@ key      = crypto_kdf_derive_from_key(KEYBYTES, subkey 2, "ROOMKEYS", master) �
 - `deriveRoomMaterial(password, salt)` → `{ verifier, key }`. Le serveur reçoit **uniquement** `verifier` + le sel public, et ne voit jamais mot de passe, `master`, ni `key`.
 - Enveloppe `{ n, c }` (pas de `pub` : **confidentialité de groupe sans authentification de l'auteur**). `encryptRoom`/`decryptRoom` + variantes binaires pour les médias.
 
+### Salons publics — clé de groupe (`crypto_secretbox`, clé transmise entre membres)
+
+Un salon public n'a pas de mot de passe : sa clé ne se dérive de rien. C'est un secret
+aléatoire de 32 octets détenu par les seuls membres, transmis d'un membre à l'autre
+**enveloppé en `crypto_box`** pour la clé publique de session du destinataire. Le
+transport du fil est **inchangé** — `encryptRoom`/`decryptRoom` ignorent l'origine de la
+clé qu'on leur donne, c'est ce qui permet au régime de groupe de réutiliser tout le
+chemin du régime mot de passe.
+
+- `genGroupKey()` → clé secretbox aléatoire.
+- `wrapGroupKey(peerPub, key)` → enveloppe `{n,c,pub}` (c'est `encryptFor` sur la clé en base64).
+- `unwrapGroupKey(env)` → clé, avec **vérification de longueur** : une enveloppe valide qui
+  ne contiendrait pas une clé de la bonne taille rendrait tout le fil silencieusement illisible.
+
+**Époque de clé (`keyEpoch`)** — un simple compteur en Redis, jamais du matériel
+cryptographique. Une clé de groupe ne survit qu'à travers ses porteurs : quand le dernier
+membre s'en va, elle est perdue (un salon **permanent**, lui, reste). Le prochain arrivant
+en engendre donc une neuve et l'époque s'incrémente, pour que deux générations ne soient
+jamais confondues. Règle de convergence : **la plus haute époque fait foi** — un membre
+qui reçoit un message d'une époque supérieure à la sienne réclame la clé correspondante
+(`room:key:need`). Deux genèses simultanées sont inoffensives : `hIncrBy` étant atomique,
+elles obtiennent deux époques distinctes et la plus basse rattrape la plus haute au
+premier message.
+
+**Coordination** (`handlers/rooms.js`, `arrangeGroupKey`) — le serveur ne voit jamais la
+clé ; il ne fait que désigner et mettre en relation :
+
+| Situation à l'entrée | Ce que fait le serveur |
+|----------------------|------------------------|
+| Aucun autre membre (salon neuf, ou permanent que tous ont quitté) | `genesis: true` — l'arrivant engendre la clé (`claimKeyGenesis`, sinon `bumpKeyEpoch`) |
+| Des membres sont là | Émet `room:key:request` aux **`ROOM_KEY_RESPONDERS` membres les plus anciens**, avec la clé **publique** de l'arrivant |
+
+Chaque porteur répond par `room:key:send`, que le serveur relaie en `room:key:deliver`
+après avoir vérifié **l'appartenance des deux extrémités** — sans quoi il suffirait
+d'annoncer un identifiant pour se faire remettre la clé d'un salon qu'on n'a pas rejoint.
+Plusieurs porteurs plutôt qu'un seul pour ne pas dépendre d'un membre injoignable :
+l'arrivant retient la première réponse valide (`setGroupKey` n'accepte jamais une époque
+plus ancienne que celle qu'il détient) et ignore les suivantes.
+
+**Côté client** (`lib/socket.ts`) — entrer dans un salon actif ouvre une fenêtre courte
+où l'on reçoit des messages avant de pouvoir les lire. Ils sont **mis de côté** (tampon
+borné à 60 par salon, RAM seule, oublié à la sortie) puis **rejoués** dès l'arrivée de la
+clé, plutôt qu'affichés « illisibles » — ce qu'une seconde plus tard démentirait. Un
+message déjà rejoué ne peut pas être remis en attente : c'est ce qui termine la boucle.
+
+**Portée exacte de la garantie** — le salon étant public, **quiconque y entre obtient la
+clé**. Le chiffrement met le contenu hors de portée de **l'hébergeur**, jamais hors de
+portée des participants. Pas de rekey au départ d'un membre : il coûterait O(membres)
+enveloppes à chaque mouvement dans un salon de région, et n'achèterait rien face à un
+adversaire qui peut simplement re-entrer. L'interface le dit explicitement plutôt que de
+laisser croire à davantage.
+
 ### Ce que le serveur voit / ne voit jamais
 
 | Le serveur détient | Le serveur ne voit JAMAIS |
 |--------------------|---------------------------|
 | Clés publiques `pub` (relayées) | Clés privées de session |
-| `verifier` d'un salon chiffré | Mot de passe / `master` / `key` d'un salon chiffré |
+| `verifier` d'un salon à mot de passe | Mot de passe / `master` / `key` d'un salon à mot de passe |
 | Enveloppes opaques `{n,c,pub}` / `{n,c}` + blobs binaires | Le clair d'un MP ou d'un salon chiffré |
-| Sel Argon2id public | — |
+| Sel Argon2id public, numéro d'époque `keyEpoch` | La **clé de groupe** d'un salon public (elle ne transite qu'enveloppée) |
 
 ---
 
@@ -594,18 +653,32 @@ key      = crypto_kdf_derive_from_key(KEYBYTES, subkey 2, "ROOMKEYS", master) �
 ## 10. Modération & conformité DSA/RGPD
 
 - **Notice-and-action** (DSA art.16) : signalement d'un message de salon ou d'un MP. Sur un contenu **chiffré**, le clair est fourni **volontairement** par le signaleur (`source:'reporter-cleartext'`, marqué `unverified`) — le serveur reste aveugle.
-- **Filtre de mots-clés** (`scanText`) non bloquant, **salons publics uniquement**, jamais sur les MP (RG-07) : un match crée un signalement `source:'filter'` (seul cas où le serveur a « vu » le texte, car il était en clair) sans bloquer la diffusion. La **modification** d'un message y repasse à l'identique, sous le même `messageId` — sinon éditer après coup suffirait à passer sous le filtre.
+- **Aucun filtre de mots-clés, aucune détection automatique.** Tout salon étant chiffré, le serveur n'a plus aucun contenu à analyser : `moderation.scanText` et la source de signalement `filter` ont été **retirés du code**, pas désactivés. La modération est intégralement pilotée par le **signalement** (art.16). Corollaire direct : `unverified` vaut **toujours** vrai — ce n'est pas un défaut de configuration mais une propriété du système, et c'est pourquoi la valeur n'est plus calculée.
 - **Un retrait ne se défait pas** : une bulle retirée par la modération est verrouillée côté client, une modification ultérieure de son auteur ne la ressuscite pas.
 - **Console opérateur** (`/operator` → namespace `/admin`) protégée par `OPERATOR_SECRET` : consultation des signalements (pseudo + contenu + horodatage, **jamais d'IP**), retrait ciblé, exclusion volatile, gestion des salons permanents.
 - **Propriétaire de salon = modérateur de première ligne** (RG-06) : reçoit `room:report:owner` et peut kick/close/retirer.
 - **Préservation prospective bornée** : `admin:freeze` gèle le sel IP (jamais rétroactivement), avec dégel automatique après `saltFreezeMaxSec` (72 h) — exception explicite et plafonnée à RG-08.
 - **Mapping DSA** : art.6/8 (pas de surveillance générale), art.11-12/14 (point de contact `/api/legal`), art.16 (notice-and-action), art.28 (motif `minor` prioritaire).
 
-> ⚠️ **Salons privés chiffrés à mot de passe** — la conformité repose sur trois
-> points solidaires : art.8 (aucun scan du contenu chiffré), art.16 (signalement
-> `reporter-cleartext`/`unverified` et retrait best-effort), et le plafond de
-> membres (`ENCRYPTED_ROOM_MAX_MEMBERS`, défaut 16) comme limitation de diffusion
-> proportionnée. Affaiblir l'un des trois remet la posture en cause.
+> ⚠️ **Chiffrement des salons — ce sur quoi la posture repose désormais.**
+> Le chiffrement a été étendu à **tous les salons publics** (régime de clé de
+> groupe), y compris les salons de région et les permanents. Deux des trois appuis
+> d'origine subsistent et restent solidaires : **art.8** (aucun scan du contenu
+> chiffré) et **art.16** (signalement `reporter-cleartext`/`unverified`, retrait
+> best-effort ciblé par `messageId`). Le troisième, le **plafond de membres**
+> (`ENCRYPTED_ROOM_MAX_MEMBERS`, défaut 16), ne couvre **plus que les salons à mot
+> de passe** : un salon public chiffré est listé, d'entrée libre et non plafonné.
+>
+> La limitation de diffusion ne vient donc plus d'un plafond mais de la nature même
+> du régime de groupe : **quiconque entre obtient la clé**. Le chiffrement d'un
+> salon public met son contenu hors de portée de **l'hébergeur**, jamais hors de
+> portée des participants — c'est ce qui laisse le signalement praticable, tout
+> signaleur étant par construction en mesure de fournir le clair qu'il a lu.
+>
+> C'est une décision du porteur du projet, prise en connaissance de la contrepartie :
+> **plus aucune détection automatique** sur la surface publique. Y toucher (rétablir
+> un plafond, réintroduire un scan, restreindre la remise de clé) est un choix de
+> conformité, pas un détail d'implémentation.
 
 ---
 
@@ -629,7 +702,8 @@ Render). Modèle : [`.env.example`](./.env.example).
 | `REPORT_TTL` | `172800` | Rétention d'un signalement (48 h), sans IP. |
 | `INCIDENT_TTL` | `259200` | TTL incident de réquisition (72 h). |
 | `BAN_TTL` | `90` | Ban volatile best-effort. |
-| `ENCRYPTED_ROOM_MAX_MEMBERS` | `16` | Plafond de membres d'un salon chiffré. |
+| `ENCRYPTED_ROOM_MAX_MEMBERS` | `16` | Plafond de membres d'un salon à **mot de passe**. Ne s'applique à aucun salon en régime de groupe. |
+| `ROOM_KEY_RESPONDERS` | `3` | Membres sollicités pour servir la clé d'un salon public à un arrivant. Plus d'un pour ne pas dépendre d'un membre injoignable. |
 | `IP_SALT_ROTATE_MS` | `300000` | Rotation du sel de hachage IP (5 min). |
 | `RL_WINDOW_SEC` / `RL_MAX` | `10` / `30` | Fenêtre / plafond anti-spam (messages / hash IP). |
 | `SALT_FREEZE_MAX_SEC` | `259200` | Plafond de gel du sel IP (72 h). |
@@ -637,7 +711,6 @@ Render). Modèle : [`.env.example`](./.env.example).
 | `ONION_HOST` | *(vide)* | Adresse du service onion. Vide ⇒ aucune annonce (`Onion-Location` ni mention UI). **En prod : dans l'unité systemd, pas dans `.env`** — cf. § 13. |
 | `ONION_RL_GLOBAL_MAX` | `RL_MAX × 50` | Plafond global du trafic onion par fenêtre. |
 | `ONION_METRICS_TTL` | `86400` | TTL des compteurs onion du tableau de bord (24 h). |
-| `MOD_KEYWORDS` | *(vide)* | Mots-clés du filtre (CSV), salons publics. |
 | `NODE_ENV` | — | `production` en prod (fixé par `render.yaml`). |
 
 Générer un `OPERATOR_SECRET` :
@@ -668,15 +741,14 @@ const rooms = require('../server/rooms'); // reçoit le fake
 beforeEach(() => fake.__reset());
 ```
 Certains tests posent des variables d'env **avant** le require (ex. `admin.test.js`
-→ `OPERATOR_SECRET`, `moderation.test.js` → `MOD_KEYWORDS`), car `config.js` lit
-l'environnement au chargement.
+→ `OPERATOR_SECRET`), car `config.js` lit l'environnement au chargement.
 
 ### Couverture (11 fichiers)
 
 | Fichier | Module | Points saillants |
 |---------|--------|------------------|
 | `admin.test.js` | `admin.js` | `tokensMatch` temps constant, `authMiddleware` (refus sans/mauvais jeton) |
-| `moderation.test.js` | `moderation.js` | **assert : aucune IP** (RG-08), report autosuffisant (RG-02), dédup, `scanText`, ban, incidents |
+| `moderation.test.js` | `moderation.js` | **assert : aucune IP** (RG-08), report autosuffisant (RG-02), dédup, `unverified` toujours vrai, ban, incidents |
 | `rooms.test.js` | `rooms.js` | Cycle de vie, salons chiffrés/permanents |
 | `sessions.test.js` | `sessions.js` | Sessions volatiles, profils publics |
 | `security.test.js` | `security.js` | `hashIp` déterministe (22 car.), sel rotatif, gel/dégel |
@@ -767,7 +839,8 @@ Choix assumés pour le MVP (voir CDC §6) :
 - **Âge déclaratif** : la majorité (18+) repose sur une simple déclaration, sans vérification.
 - **Modération réactive** : pas de modération automatique généralisée ; dispositif fondé sur le signalement et le retrait.
 - **Anonymat non absolu** : un serveur web voit toujours l'IP du client. Le projet vise le **maximum de confidentialité raisonnable**, pas l'anonymat absolu (qui relèverait d'un réseau type Tor).
-- **Salons chiffrés** : pas de forward secrecy ni de révocation cryptographique ; mot de passe figé à la création.
+- **Salons à mot de passe** : pas de forward secrecy ni de révocation cryptographique ; mot de passe figé à la création.
+- **Salons en régime de groupe** (publics, région, permanents, privés sur invitation) : la clé est remise à **quiconque franchit la porte** — la garantie vaut face à l'hébergeur, jamais face aux participants. Pas de rekey au départ d'un membre (coût O(membres) par mouvement, sans gain face à un adversaire qui peut re-entrer). Corollaire de modération : **aucune détection automatique de contenu**, nulle part ; tout passe par le signalement.
 - **Hors-scope v1** : vérification d'âge réelle, rayon réglable, géolocalisation fine, internationalisation (l'UI est en **français uniquement**).
 
 ---

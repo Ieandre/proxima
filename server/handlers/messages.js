@@ -3,28 +3,44 @@
 const { clamp, genId } = require('../protocol');
 const sessions = require('../domain/sessions');
 const rooms = require('../domain/rooms');
-const moderation = require('../domain/moderation');
 
 /**
  * MESSAGES DE SALON — le seul chemin par lequel du contenu de groupe transite.
  *
- * Deux régimes, et la distinction est structurelle :
- *  - salon CHIFFRÉ : le serveur relaie une enveloppe OPAQUE et NE SCANNE JAMAIS
- *    (RG-07 étendu, posture DSA art.8) ;
- *  - salon en CLAIR : diffusion, puis filtre de mots-clés NON bloquant qui ne
- *    peut créer qu'un signalement pour l'opérateur.
+ * Il n'y a plus qu'un régime : le serveur relaie une enveloppe OPAQUE et NE SCANNE
+ * JAMAIS (RG-07, posture DSA art.8). Tout salon est chiffré — les deux régimes de clé
+ * (`password`, `group`, cf. `domain/rooms.js`) diffèrent par la façon d'obtenir la clé,
+ * jamais par ce qui traverse le fil. Un message sans enveloppe est donc simplement
+ * ignoré : il n'existe aucun chemin par lequel du clair pourrait passer, et c'est
+ * volontaire — un tel chemin serait la seule façon de faire lire au serveur ce qu'il
+ * n'est pas censé voir.
  *
- * Le flag `encrypted` du SALON fait foi, jamais le payload client : un client ne
- * peut pas se déclarer chiffré pour échapper au filtre, ni l'inverse.
+ * Ce que le serveur ne peut donc PAS faire, et qu'il faut assumer plutôt que
+ * contourner : aucune détection automatique de contenu. La modération repose
+ * intégralement sur le signalement (art.16), où le clair est fourni par le signaleur
+ * et marqué non vérifié.
  *
- * L'envoi (`room:message`) et la MODIFICATION (`room:edit`) suivent l'un et
- * l'autre ce partage — un texte retouché est du contenu de groupe comme un autre.
+ * L'envoi (`room:message`) et la MODIFICATION (`room:edit`) suivent la même règle —
+ * un texte retouché est du contenu de groupe comme un autre.
  */
 
 /**
- * Champs d'une pièce jointe, identiques dans les deux régimes. Le `mime` est
- * tronqué et jamais interprété côté serveur ; les octets sont opaques dans les
- * deux cas (chiffrés en salon chiffré, simplement non inspectés sinon).
+ * Époque de la clé qui scelle cette enveloppe. Relayée telle quelle depuis l'émetteur
+ * — et non lue sur le salon : un membre peut légitimement être resté sur une
+ * génération antérieure, et c'est l'ENVELOPPE que l'époque décrit, pas le salon. Le
+ * serveur n'a de toute façon rien à vérifier là, ne détenant aucune clé ; au pire une
+ * valeur fantaisiste rend le message illisible pour ses destinataires, qui
+ * réclameront une clé inexistante et n'obtiendront rien. Vaut 0 en régime mot de passe
+ * (une clé dérivée d'un mot de passe n'a pas de génération).
+ */
+function keyEpoch(payload) {
+  const n = Number(payload.ke);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * Champs d'une pièce jointe. Le `mime` est tronqué et jamais interprété côté serveur ;
+ * les octets sont chiffrés, donc opaques comme le reste.
  */
 function mediaFields(payload) {
   return {
@@ -36,32 +52,15 @@ function mediaFields(payload) {
 }
 
 /**
- * Filtre de mots-clés d'un salon EN CLAIR — non bloquant : le texte a déjà été
- * diffusé, un match ne peut que créer un signalement pour l'opérateur.
- *
- * Appliqué à l'identique à un message et à sa MODIFICATION : sans cela, éditer
- * serait le contournement le plus simple du filtre (un texte anodin, puis son
- * remplacement). Le signalement porte le même `messageId` dans les deux cas —
- * c'est lui que vise le retrait ciblé.
+ * Enveloppe du payload, ou `null` si elle manque. Seul point d'entrée du contenu :
+ * tout ce qui n'est pas une enveloppe est refusé sans autre examen.
  */
-async function screen({ roomId, messageId, text, authorId, authorPseudo, notifyReport }) {
-  const scan = moderation.scanText(text);
-  if (!scan.flagged) return;
-  const report = await moderation.createReport({
-    scope: 'room',
-    roomId,
-    messageId,
-    content: text,
-    authorId,
-    authorPseudo,
-    reporterPseudo: 'filtre',
-    reason: 'other',
-    source: 'filter',
-  });
-  if (report) await notifyReport(report);
+function envelopeOf(payload) {
+  const env = payload.env;
+  return env && typeof env === 'object' ? env : null;
 }
 
-function register({ io, socket, sid, limited, notifyReport }) {
+function register({ io, socket, sid, limited }) {
   socket.on('room:message', async (payload = {}) => {
     const id = sid();
     if (!id) return;
@@ -69,57 +68,34 @@ function register({ io, socket, sid, limited, notifyReport }) {
     const roomId = clamp(payload.roomId, 32);
     if (!socket.data.rooms.has(roomId)) return;
     if (!(await rooms.isMember(roomId, id))) return;
-    const room = await rooms.getRoom(roomId);
-    if (!room) return;
+    if (!(await rooms.getRoom(roomId))) return;
 
+    const env = envelopeOf(payload);
+    if (!env) return;
     const isMedia = payload.kind === 'media';
     if (isMedia && !payload.data) return;
 
     const me = await sessions.getSession(id);
     // `id` de message généré SERVEUR (non forgeable par le client) : cible du retrait ciblé.
     const base = { id: genId(), roomId, fromId: id, fromPseudo: me ? me.pseudo : '?', ts: payload.ts || null };
+    const body = isMedia ? { ...mediaFields(payload), env } : { kind: 'text', env };
 
+    io.to(`room:${roomId}`).emit('room:message', { ...base, enc: '1', ke: keyEpoch(payload), ...body });
     /**
-     * Diffusion, et prise de parole actée dans le même geste : c'est elle qui rendra
+     * Prise de parole actée dans le même geste que la diffusion : c'est elle qui rendra
      * le départ annonçable (cf. `announceLeave`). Marquée à la DIFFUSION et non à la
-     * tentative — un message rejeté plus haut (non membre, vide, hors quota) n'a été
-     * lu par personne, il ne doit donc pas donner droit à un « est sorti·e ».
+     * tentative — un message rejeté plus haut (non membre, sans enveloppe, hors quota)
+     * n'a été lu par personne, il ne doit donc pas donner droit à un « est sorti·e ».
      */
-    const broadcast = (body) => {
-      io.to(`room:${roomId}`).emit('room:message', body);
-      socket.data.spoke.add(roomId);
-    };
+    socket.data.spoke.add(roomId);
 
-    if (room.encrypted) {
-      const env = payload.env;
-      if (!env || typeof env !== 'object') return;
-      const body = isMedia ? { ...mediaFields(payload), env } : { kind: 'text', env };
-      broadcast({ ...base, enc: '1', ...body });
-      return;
-    }
-
-    // Réponse citée : le client n'envoie que l'IDENTIFIANT du message cité, jamais son
-    // contenu — chaque destinataire résout la citation dans son propre fil (pas
-    // d'historique reconstitué pour un arrivant, RG-01). Le serveur ne fait que le
-    // relayer : rien à vérifier, aucun message n'étant conservé. Sur un salon chiffré
-    // la référence est scellée dans l'enveloppe et n'est donc jamais lue ici.
-    const replyTo = clamp(payload.replyTo, 32);
-    const reply = replyTo ? { replyTo } : {};
-
-    if (isMedia) {
-      broadcast({ ...base, ...reply, ...mediaFields(payload) });
-      return;
-    }
-
-    const text = clamp(payload.text, 2000).trim();
-    if (!text) return;
-    broadcast({ ...base, ...reply, kind: 'text', text });
-    await screen({ roomId, messageId: base.id, text, authorId: id, authorPseudo: base.fromPseudo, notifyReport });
+    // Aucune trace de la RÉPONSE CITÉE ici : la référence est scellée dans l'enveloppe
+    // (cf. `frontend/src/lib/body.ts`), le serveur ignore donc jusqu'au graphe des
+    // réponses. Un `replyTo` en clair dans le payload est simplement laissé de côté.
   });
 
   /**
-   * MODIFICATION d'un message déjà diffusé — même partage des deux régimes que
-   * `room:message` : opaque en salon chiffré, sous le filtre en salon clair.
+   * MODIFICATION d'un message déjà diffusé — relais opaque, comme l'envoi.
    *
    * Le serveur ne conserve AUCUN message (RG-01) : il n'a donc rien à quoi
    * comparer `messageId` et ne peut pas vérifier que la personne en est l'auteur.
@@ -143,35 +119,19 @@ function register({ io, socket, sid, limited, notifyReport }) {
     const roomId = clamp(payload.roomId, 32);
     if (!socket.data.rooms.has(roomId)) return;
     if (!(await rooms.isMember(roomId, id))) return;
-    const room = await rooms.getRoom(roomId);
-    if (!room) return;
+    if (!(await rooms.getRoom(roomId))) return;
     const messageId = clamp(payload.messageId, 32);
     if (!messageId) return;
+    const env = envelopeOf(payload);
+    if (!env) return;
 
-    const base = { roomId, messageId, fromId: id };
-
-    if (room.encrypted) {
-      const env = payload.env;
-      if (!env || typeof env !== 'object') return;
-      io.to(`room:${roomId}`).emit('room:edited', { ...base, enc: '1', env });
-      return;
-    }
-
-    // Un texte vide n'est pas une modification : le produit n'offre pas la
-    // suppression d'un message (seule la modération retire), et une bulle vidée
-    // en serait une par la porte de service.
-    const text = clamp(payload.text, 2000).trim();
-    if (!text) return;
-    io.to(`room:${roomId}`).emit('room:edited', { ...base, text });
-
-    const me = await sessions.getSession(id);
-    await screen({
+    io.to(`room:${roomId}`).emit('room:edited', {
       roomId,
       messageId,
-      text,
-      authorId: id,
-      authorPseudo: me ? me.pseudo : '?',
-      notifyReport,
+      fromId: id,
+      enc: '1',
+      ke: keyEpoch(payload),
+      env,
     });
   });
 }
