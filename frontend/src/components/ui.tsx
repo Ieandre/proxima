@@ -224,6 +224,19 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   moon: <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2Z" />,
+  bell: (
+    <>
+      <path d="M18 9.5a6 6 0 0 0-12 0c0 4.5-2 6-2 6h16s-2-1.5-2-6Z" />
+      <path d="M10.3 19.2a2.2 2.2 0 0 0 3.4 0" />
+    </>
+  ),
+  'bell-off': (
+    <>
+      <path d="M18 9.5a6 6 0 0 0-12 0c0 4.5-2 6-2 6h16s-2-1.5-2-6Z" />
+      <path d="M10.3 19.2a2.2 2.2 0 0 0 3.4 0" />
+      <path d="M4 3.6 20 20.4" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 18 }: { name: keyof typeof PATHS | string; size?: number }) {

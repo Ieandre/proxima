@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { chime } from '../lib/sound';
 import type { ActiveKey, JoinedRoom, Message, Person, RoomMember, RoomSummary } from '../lib/types';
 
 let msgSeq = 0;
@@ -190,10 +191,12 @@ export const useStore = create<State>((set, get) => ({
       return { joinedRooms, roomKeys, roomPasswords, active };
     }),
 
-  pushMessage: (key, msg) =>
+  pushMessage: (key, msg) => {
+    const active = get().active;
+    const isActive = !!active && convKey(active) === key;
+
     set((s) => {
       const thread = s.threads[key] ? [...s.threads[key], mkMsg(msg)] : [mkMsg(msg)];
-      const isActive = s.active && convKey(s.active) === key;
       // Les messages système (arrivée/départ, renommage…) ne sont pas « à lire » :
       // les comptabiliser ferait gonfler la pastille sans contenu réel derrière.
       const counts = !isActive && msg.kind !== 'me' && msg.kind !== 'system';
@@ -201,7 +204,19 @@ export const useStore = create<State>((set, get) => ({
       // Une mention dans la conversation qu'on a sous les yeux n'a rien à signaler.
       const mentioned = counts && msg.mentionsMe ? { ...s.mentioned, [key]: true } : s.mentioned;
       return { threads: { ...s.threads, [key]: thread }, unread, mentioned };
-    }),
+    });
+
+    // Le son suit une règle plus large que la pastille, et hors du `set` — sonner
+    // est un effet, pas un calcul d'état. Une conversation ouverte dans un onglet
+    // passé en arrière-plan ne compte aucun non-lu ; c'est pourtant exactement là
+    // qu'un signal sonore sert, puisque rien n'est sous les yeux. Ce qui s'adresse
+    // à nous (MP, mention) a sa propre voix : « on vous parle » n'est pas la même
+    // information que « un salon vit ».
+    if (msg.kind !== 'them') return;
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (isActive && !hidden) return;
+    chime(msg.mentionsMe || key.startsWith('pm:') ? 'alert' : 'message');
+  },
 
   retractMessage: (key, msgId) =>
     set((s) => {

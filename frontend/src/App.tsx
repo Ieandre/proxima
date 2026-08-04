@@ -6,6 +6,7 @@ import { Chat } from './components/chat/Chat';
 import { About } from './components/pages/About';
 import { Legal, isLegalHash } from './components/pages/Legal';
 import { isOnionOrigin } from './lib/onion';
+import { armSound } from './lib/sound';
 
 const ABOUT_HASH = '#en-savoir-plus';
 
@@ -18,6 +19,10 @@ export function App() {
   useEffect(() => {
     connect();
   }, []);
+
+  // Le son des notifications doit être déverrouillé par un geste (contrainte iOS) :
+  // on prend le premier de la visite, quel qu'il soit.
+  useEffect(() => armSound(), []);
 
   /**
    * Configuration publique (point de contact DSA + adresse onion), chargée UNE

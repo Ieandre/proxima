@@ -8,6 +8,7 @@ import {
   watchSystemTheme,
   type Theme,
 } from '../../lib/theme';
+import { previewChime, setSoundMuted, soundMuted } from '../../lib/sound';
 import { Icon, Logo } from '../ui';
 
 /* ==========================================================================
@@ -85,6 +86,31 @@ function ThemeToggle() {
   );
 }
 
+// Bascule du son des notifications
+function SoundToggle() {
+  const [muted, setMuted] = useState(() => soundMuted());
+  const label = muted ? 'Rétablir le son des notifications' : 'Couper le son des notifications';
+
+  return (
+    <button
+      type="button"
+      className="topbar__theme"
+      onClick={() => {
+        const next = !muted;
+        setSoundMuted(next);
+        setMuted(next);
+        // Rétablir le son le fait entendre : sans cela il faudrait attendre un
+        // message pour savoir ce qu'on vient de régler.
+        if (!next) previewChime();
+      }}
+      title={label}
+      aria-label={label}
+    >
+      <Icon name={muted ? 'bell-off' : 'bell'} size={17} />
+    </button>
+  );
+}
+
 /* Accès par le service onion.
  *
  * VISIBLE DE SOI SEUL. Ce badge n'est jamais diffusé aux autres présents, et
@@ -155,6 +181,10 @@ export function TopBar({
           brand
         )}
         <div className="topbar__actions">
+          {/* Le son ne se coupe que là où il peut sonner : hors session, un bouton
+              de sourdine n'aurait rien à couper — ce serait du bruit d'interface
+              dans la barre de l'accueil. */}
+          {status === 'live' && <SoundToggle />}
           <ThemeToggle />
           {children}
         </div>

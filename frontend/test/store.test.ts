@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { convKey, useStore } from '../src/store/useStore';
+import { chime } from '../src/lib/sound';
 import type { JoinedRoom, Person } from '../src/lib/types';
+
+/* Sonner est un effet : on ne vérifie ici que la RÈGLE de déclenchement, la voix
+   elle-même ayant sa propre suite (`sound.test.ts`). */
+vi.mock('../src/lib/sound', () => ({ chime: vi.fn() }));
 
 // Réinitialise le store entre chaque test (état global partagé).
 beforeEach(() => {
@@ -198,6 +203,62 @@ describe('mentions', () => {
   it('un message ordinaire laisse le drapeau baissé', () => {
     s().pushMessage(K, { kind: 'them', text: 'bonjour' } as never);
     expect(s().mentioned[K]).toBeUndefined();
+  });
+});
+
+describe('son des notifications', () => {
+  const rang = () => vi.mocked(chime).mock.calls.map(([kind]) => kind);
+
+  beforeEach(() => {
+    vi.mocked(chime).mockClear();
+    // L'environnement de test est `node` : pas de `document`. Le store s'en passe
+    // (l'onglet est alors réputé visible) et chaque cas pose ce qu'il lui faut.
+    Reflect.deleteProperty(globalThis, 'document');
+  });
+
+  /** Onglet en arrière-plan, le seul état que le store consulte. */
+  const hideTab = () =>
+    Object.defineProperty(globalThis, 'document', {
+      value: { hidden: true },
+      configurable: true,
+      writable: true,
+    });
+
+  it('un salon qui passe sonne de sa voix', () => {
+    s().pushMessage('room:r1', { kind: 'them', text: 'bonjour' } as never);
+    expect(rang()).toEqual(['message']);
+  });
+
+  it('un message privé a la voix de ce qui s’adresse à nous', () => {
+    s().pushMessage('pm:a', { kind: 'them', text: 'salut' } as never);
+    expect(rang()).toEqual(['alert']);
+  });
+
+  it('une mention en salon prend elle aussi cette voix', () => {
+    s().pushMessage('room:r1', { kind: 'them', text: '@moi ?', mentionsMe: true } as never);
+    expect(rang()).toEqual(['alert']);
+  });
+
+  it('la conversation sous les yeux reste silencieuse', () => {
+    s().setActive({ kind: 'room', id: 'r1' });
+    s().pushMessage('room:r1', { kind: 'them', text: 'bonjour' } as never);
+    expect(rang()).toEqual([]);
+  });
+
+  it('mais elle sonne si l’onglet est passé en arrière-plan', () => {
+    // C'est le cas que la pastille de non-lus ne couvre pas : la conversation est
+    // ouverte, donc rien n'est compté — et personne n'a les yeux dessus.
+    s().setActive({ kind: 'room', id: 'r1' });
+    hideTab();
+    s().pushMessage('room:r1', { kind: 'them', text: 'bonjour' } as never);
+    expect(rang()).toEqual(['message']);
+  });
+
+  it('ses propres messages et les messages système ne sonnent jamais', () => {
+    hideTab();
+    s().pushMessage('room:r1', { kind: 'me', text: 'moi' } as never);
+    s().pushMessage('room:r1', { kind: 'system', text: 'Bob a rejoint le salon.' } as never);
+    expect(rang()).toEqual([]);
   });
 });
 

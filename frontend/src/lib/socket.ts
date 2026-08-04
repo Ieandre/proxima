@@ -22,6 +22,7 @@ import { forgetIdentity, recallIdentity, rememberIdentity, type DeclaredIdentity
 import { mentionsPseudo } from './mentions';
 import { blobUrl, prepareMedia } from './media';
 import { peerFromMember } from './people';
+import { chime } from './sound';
 
 let socket: Socket | null = null;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -89,6 +90,10 @@ let titleBeforeAlert: string | null = null;
  */
 function notifyGuestArrival(pseudo: string): void {
   if (typeof document === 'undefined' || !document.hidden) return;
+
+  // L'onglet est caché : le titre ne prévient que si l'on y revient les yeux
+  // dessus. C'est le cas où le son porte réellement l'information.
+  chime('alert');
 
   if (titleBeforeAlert === null) titleBeforeAlert = document.title;
   document.title = `${pseudo} vous attend — Proxima`;

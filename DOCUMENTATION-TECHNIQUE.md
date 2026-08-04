@@ -420,6 +420,7 @@ store/useStore.ts   état Zustand global (RAM, jamais persisté)
 lib/socket.ts       connexion Socket.IO + tous les écouteurs/actions
 lib/crypto.ts       couche E2E libsodium (voir §8)
 lib/media.ts        préparation photos/vidéos (downscale, limites de taille)
+lib/sound.ts        son de notification synthétisé (Web Audio) + sourdine
 lib/types.ts        types partagés
 components/          Onboarding, Chat, Sidebar, Conversation, Composer,
                     RoomBrowser, RoomJoinPasswordModal, About, AboutSchemas,
@@ -458,6 +459,22 @@ les écouteurs du [§6](#6-référence-des-événements-socketio) et expose les 
 - **`RoomBrowser.tsx`** : onglets Parcourir/Créer (visibilité, mot de passe optionnel, case « chiffrer de bout en bout »).
 - **`About.tsx`/`AboutSchemas.tsx`** : page pédagogique avec **démo crypto live** (chiffrement/MITM en direct) et planches animées (respect `prefers-reduced-motion`).
 - **`Legal.tsx`** : pages juridiques (CGU, RGPD, DSA, mentions), contact injecté depuis `/api/legal`.
+
+### Son de notification (`lib/sound.ts`)
+Voix **synthétisée** en Web Audio (aucun fichier audio : rien à télécharger, aucune
+entrée `media-src` de plus dans la CSP). Timbre de glockenspiel — cinq partiels
+légèrement inharmoniques aux décroissances distinctes, bruit de maillet de 30 ms,
+réverbération courte convolée depuis un bruit décroissant généré à la volée.
+- Deux motifs : `message` (une note, ré5) pour un salon qui passe, `alert` (quinte
+  ascendante ré5→la5) pour ce qui s'adresse à nous — MP, mention, arrivée d'un invité.
+- Déclenché par `pushMessage` (store), selon une règle **plus large que la pastille de
+  non-lus** : une conversation ouverte dans un onglet en arrière-plan ne compte aucun
+  non-lu et doit pourtant sonner.
+- Anti-rafale : 1 400 ms entre deux `message`, 400 ms pour une `alert`.
+- `armSound()` (appelé par `App.tsx`) déverrouille le contexte audio au **premier geste**
+  de la visite — sans quoi iOS garderait les notifications muettes toute la session.
+- Sourdine dans la barre supérieure, mémorisée en `sessionStorage` (même doctrine que
+  `lib/theme.ts` : rien ne survit à l'onglet).
 
 ### Médias (`lib/media.ts`)
 `prepareMedia(file)` : GIF tel quel (≤ 8 Mo) ; autres images downscalées (≤ 1600 px,
