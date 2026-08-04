@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { reportPM, sendPM, sendPMMedia, sendTyping } from '../../lib/socket';
+import { editPM, reportPM, sendPM, sendPMMedia, sendTyping } from '../../lib/socket';
 import { safetyNumber } from '../../lib/crypto';
 import { GENDER_LABEL, type Message, type ReportReason } from '../../lib/types';
 import { Composer } from '../chat/Composer';
 import { Avatar, Icon } from '../ui';
-import { BackBar, ThreadSheet, ThreadStart, TypingIndicator , replyDraft} from './shared';
+import { BackBar, ThreadSheet, ThreadStart, TypingIndicator , editDraft, replyDraft} from './shared';
 import { MessageList } from './MessageList';
 
 
@@ -16,6 +16,8 @@ export function PMView({ peerId }: { peerId: string }) {
   const [showVerify, setShowVerify] = useState(false);
   const [verified, setVerified] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  // Message que l'on retouche — exclusif de la réponse (même champ de saisie).
+  const [editing, setEditing] = useState<Message | null>(null);
 
   const onReport = (m: Message, reason: ReportReason) =>
     reportPM(peerId, m.msgId || m.localId, m.media ? '(média)' : m.text, reason).then((res) =>
@@ -87,7 +89,15 @@ export function PMView({ peerId }: { peerId: string }) {
           messages={messages}
           showNames={false}
           onReport={onReport}
-          onReply={setReplyTo}
+          onReply={(m) => {
+            setEditing(null);
+            setReplyTo(m);
+          }}
+          onEdit={(m) => {
+            setReplyTo(null);
+            setEditing(m);
+          }}
+          editingId={editing?.msgId}
           empty={
             <ThreadStart title={`Votre conversation avec ${peer?.pseudo || 'cette personne'} commence ici.`}>
               Chaque message est chiffré sur votre appareil&nbsp;: le serveur transporte un bloc qu'il ne peut pas
@@ -100,6 +110,11 @@ export function PMView({ peerId }: { peerId: string }) {
         <Composer
           placeholder={`Message chiffré à ${peer?.pseudo || '…'}`}
           onSend={(t) => {
+            if (editing?.msgId) {
+              editPM(peerId, editing.msgId, t);
+              setEditing(null);
+              return;
+            }
             sendPM(peerId, t, replyTo?.msgId);
             setReplyTo(null);
           }}
@@ -110,6 +125,8 @@ export function PMView({ peerId }: { peerId: string }) {
           }}
           reply={replyDraft(replyTo)}
           onCancelReply={() => setReplyTo(null)}
+          edit={editDraft(editing)}
+          onCancelEdit={() => setEditing(null)}
         />
       </ThreadSheet>
     </div>

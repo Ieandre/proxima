@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../../store/useStore';
 import { type Message } from '../../lib/types';
-import { type ReplyDraft } from '../chat/Composer';
+import { type EditDraft, type ReplyDraft } from '../chat/Composer';
 import { NetworkBackground } from '../NetworkBackground';
 import { Icon, Logo } from '../ui';
 
@@ -25,6 +25,13 @@ export const replyDraft = (m: Message | null): ReplyDraft | null =>
   m && m.msgId
     ? { id: m.msgId, author: m.kind === 'me' ? 'votre message' : m.fromPseudo || 'ce message', excerpt: excerptOf(m) }
     : null;
+
+/**
+ * Message dont on reprend le texte dans le champ de saisie. Même condition que
+ * pour une citation : sans `msgId`, aucune ancre partagée avec l'autre bout, donc
+ * rien à modifier chez lui.
+ */
+export const editDraft = (m: Message | null): EditDraft | null => (m && m.msgId ? { id: m.msgId, text: m.text } : null);
 
 export function EmptyState() {
   const me = useStore((s) => s.me);

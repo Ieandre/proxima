@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   closeRoom,
+  editRoomMessage,
   reportRoomMessage,
   sendRoomMedia,
   sendRoomMessage,
@@ -12,7 +13,7 @@ import { type JoinedRoom, type Message, type ReportReason } from '../../lib/type
 import { Composer } from '../chat/Composer';
 import { RoomCard } from '../rooms/RoomCard';
 import { Avatar, Icon, Modal } from '../ui';
-import { EmptyState, BackBar, ThreadSheet, ThreadStart, TypingIndicator , replyDraft} from './shared';
+import { EmptyState, BackBar, ThreadSheet, ThreadStart, TypingIndicator , editDraft, replyDraft} from './shared';
 import { MembersPanel } from './Members';
 import { MessageList } from './MessageList';
 
@@ -38,6 +39,10 @@ export function RoomView({ roomId }: { roomId: string }) {
   const [pwdModal, setPwdModal] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  // Message que l'on retouche. Exclusif de la réponse : le champ de saisie ne peut
+  // pas servir aux deux à la fois, et prétendre le contraire tromperait sur ce que
+  // Entrée va faire.
+  const [editing, setEditing] = useState<Message | null>(null);
   // Sortir annonce le départ aux présents, et peut effacer le salon (RG-05) : la même
   // fiche que dans la liste le dit avant d'agir, plutôt qu'une ligne de menu muette.
   const listed = useStore((s) => s.publicRooms.find((r) => r.id === roomId));
@@ -175,7 +180,15 @@ export function RoomView({ roomId }: { roomId: string }) {
             messages={messages}
             showNames
             onReport={onReport}
-            onReply={setReplyTo}
+            onReply={(m) => {
+              setEditing(null);
+              setReplyTo(m);
+            }}
+            onEdit={(m) => {
+              setReplyTo(null);
+              setEditing(m);
+            }}
+            editingId={editing?.msgId}
             mentionPseudos={room.members.map((m) => m.pseudo)}
             myPseudo={me.pseudo}
             empty={
@@ -190,6 +203,11 @@ export function RoomView({ roomId }: { roomId: string }) {
           <Composer
             placeholder={`Message dans ${room.name}`}
             onSend={(t) => {
+              if (editing?.msgId) {
+                editRoomMessage(roomId, editing.msgId, t);
+                setEditing(null);
+                return;
+              }
               sendRoomMessage(roomId, t, replyTo?.msgId);
               setReplyTo(null);
             }}
@@ -200,6 +218,8 @@ export function RoomView({ roomId }: { roomId: string }) {
             }}
             reply={replyDraft(replyTo)}
             onCancelReply={() => setReplyTo(null)}
+            edit={editDraft(editing)}
+            onCancelEdit={() => setEditing(null)}
             // On ne se propose pas à soi-même : s'interpeller n'apprend rien à personne.
             mentionables={room.members.filter((m) => m.id !== me.id)}
           />

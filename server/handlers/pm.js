@@ -37,6 +37,27 @@ function register({ io, socket, sid, limited }) {
     });
   });
 
+  /**
+   * MODIFICATION d'un MP. Le serveur ne sait même pas QUEL message est visé :
+   * l'identifiant et le nouveau texte sont scellés dans l'enveloppe, comme pour
+   * un envoi (cf. `frontend/src/lib/body.ts`). Il relaie donc à l'aveugle et
+   * n'apprend rien qu'il ne savait déjà — que ces deux-là se parlent.
+   *
+   * Le destinataire vérifie de son côté que la modification vient bien de
+   * l'auteur du message visé : `fromId` est attesté par la connexion, jamais par
+   * le payload. Aucune modération ici non plus (RG-07).
+   */
+  socket.on('pm:edit', async (payload = {}) => {
+    const id = sid();
+    if (!id) return;
+    if (await limited()) return socket.emit('error:rate');
+    const toId = clamp(payload.toId, 32);
+    const env = payload.env;
+    if (!toId || !env || typeof env !== 'object') return;
+    if (!(await sessions.getSession(toId))) return socket.emit('pm:undeliverable', { toId });
+    io.to(`user:${toId}`).emit('pm:edited', { fromId: id, env });
+  });
+
   // ----- Clé publique d'un·e présent·e, révélée à la demande -------------
   //
   //

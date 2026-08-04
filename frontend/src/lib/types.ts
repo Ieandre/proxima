@@ -61,6 +61,8 @@ export type Message = {
   encrypted?: boolean;
   media?: MediaAttachment;
   retracted?: boolean; // message retiré par la modération
+  /** Texte remplacé par son auteur après diffusion — dit à voix haute dans la bulle. */
+  edited?: boolean;
   /** `msgId` du message cité — la citation elle-même est résolue localement, jamais transmise. */
   replyTo?: string;
   /** Le message m'interpelle par mon pseudo (calculé à la réception, jamais transmis). */

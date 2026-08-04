@@ -137,6 +137,9 @@ Le scénario nominal, de l'arrivée à la fermeture de l'onglet :
      → serveur relaie tel quel → 'pm:recv' → decryptFrom() côté destinataire
    • Salon : joinRoom/createRoom, sendRoomMessage() (clair OU chiffré),
      room:members, room:system, room:message
+   • Modification : 'room:edit' / 'pm:edit' → 'room:edited' / 'pm:edited'
+     l'autorisation est vérifiée par les DESTINATAIRES (store.editMessage) :
+     le serveur ne garde aucun message, il n'a rien à quoi comparer
    • Typing : 'typing' éphémère (aucun contenu)
 
 4. FIN (fermeture onglet/navigateur = RG-02)
@@ -295,10 +298,10 @@ chaque module.
 | `index.js` | *aucun métier* : contexte de connexion + branchement + `disconnect` |
 | `identity.js` | `identify`, `identity:rename` |
 | `presence.js` | `heartbeat`, `presence:list`, `typing` |
-| `pm.js` | `pm:send`, `pm:key` |
+| `pm.js` | `pm:send`, `pm:edit`, `pm:key` |
 | `pm-invites.js` | `pm:invite:create` / `:peek` / `:claim` / `:accept` / `:revoke` |
 | `rooms.js` | `room:create`, `room:list`, `room:peek`, `room:join`, `room:leave` |
-| `messages.js` | `room:message` |
+| `messages.js` | `room:message`, `room:edit` |
 | `governance.js` | `room:kick`, `room:close`, `room:password` |
 | `reports.js` | `pm:report`, `room:report` |
 
@@ -335,6 +338,7 @@ l'anti-spam, **jamais journalisée**.
 La liste complète des événements est au [§6](#6-référence-des-événements-socketio). Points saillants :
 - **MP (`pm:send` → `pm:recv`)** : relais d'une **enveloppe opaque** `env` (+ `data` binaire opaque si média). Rate-limité. `pm:undeliverable` si la cible est absente. Le serveur ne peut pas lire le contenu.
 - **Message de salon (`room:message`)** : l'`id` de message est **généré serveur** (non forgeable → cible du retrait ciblé). Salon **chiffré** ⇒ relais d'enveloppe opaque avec flag `enc:'1'`, **jamais de scan**. Salon **en clair** ⇒ diffusion puis `moderation.scanText` (filtre non bloquant, crée un report `source:'filter'` si match).
+- **Modification d'un message (`room:edit` → `room:edited`, `pm:edit` → `pm:edited`)** : le serveur **ne conserve aucun message** (RG-01), il n'a donc **rien à quoi comparer** `messageId` et ne peut pas vérifier que l'on est l'auteur de ce que l'on retouche. Il atteste ce qu'il sait — `fromId`, tenu de la connexion et jamais du payload — et ce sont les **destinataires** qui écartent une modification dont l'auteur revendiqué n'est pas celui du message visé (`store.editMessage`, seul détenteur du fil). Tenir une table « message → auteur », même à TTL court, n'ajouterait aucune garantie (un client modifié affiche ce qu'il veut) mais exactement la trace que le projet refuse. En salon **en clair**, le nouveau texte **repasse par `moderation.scanText`** sous le même `messageId` : sans cela, éditer serait le contournement le plus simple du filtre. En salon **chiffré** et en **MP**, l'enveloppe est relayée telle quelle — pour un MP, le serveur ignore jusqu'à **quel** message est modifié (identifiant scellé dans le corps, cf. `lib/body.ts`). Un message **retiré** par la modération n'est pas réécrivable (verrou côté client, là où l'information vit).
 - **Gouvernance** (`room:kick`/`room:close`/`room:password`) réservée au propriétaire (`ownerOf`). `password` interdit sur un salon chiffré (figé) ou public.
 - **`disconnect`** : `handleLeave` sur tous les salons, `presence:remove` aux voisins, `sessions.deleteSession` (destruction totale, RG-02).
 
@@ -376,6 +380,8 @@ passe de salon en clair, une clé de chiffrement, une IP en clair.
 | `presence:remove` | serveur → client | `{ id }` | Un voisin disparaît |
 | `pm:send` | client → serveur | `{ toId, env, data? }` | Relais **opaque** vers `user:<toId>` |
 | `pm:recv` | serveur → client | `{ fromId, env, data? }` | MP chiffré reçu (déchiffré localement) |
+| `pm:edit` | client → serveur | `{ toId, env }` | Modification d'un MP : relais **opaque**, le message visé est scellé dans `env` |
+| `pm:edited` | serveur → client | `{ fromId, env }` | Le destinataire remplace le texte si `fromId` est bien l'auteur du message visé |
 | `pm:undeliverable` | serveur → client | `{ toId }` | Destinataire déconnecté |
 | `pm:report` | client → serveur (ack) | `{ …, cleartext }` | Signalement d'un MP (clair fourni volontairement, `unverified`) |
 | `typing` | ↔ | `{ scope, id }` | Indicateur éphémère, aucun contenu |
@@ -385,6 +391,8 @@ passe de salon en clair, une clé de chiffrement, une IP en clair.
 | `room:join` | client → serveur (ack) | `{ roomId, password?, invite?, verifier? }` | Rejoint (vérifie ban, plafond chiffré, verifier/invite/mdp). **Aucune annonce d'arrivée** |
 | `room:leave` | client → serveur | `{ roomId }` | Quitte + `announceLeave` (si l'on a parlé) + `handleLeave` |
 | `room:message` | ↔ | `{ roomId, text?/media?, enc? }` | Message (clair scanné, chiffré opaque). `id` **généré serveur** |
+| `room:edit` | client → serveur | `{ roomId, messageId, text?/env? }` | Modification d'un message diffusé (clair **rescanné**, chiffré opaque) |
+| `room:edited` | serveur → client | `{ roomId, messageId, fromId, text?/env? }` | Nouvelle version. `fromId` **attesté par la connexion** ; chaque client vérifie qu'il est l'auteur du message visé |
 | `room:report` | client → serveur (ack) | `{ roomId, messageId, … }` | Signalement d'un message de salon |
 | `room:members` | serveur → client | `{ roomId, members, owner }` | Liste des membres à jour |
 | `room:system` | serveur → client | `{ roomId, text }` | Message système (départ *si l'on a parlé*, transfert, renommage, mot de passe) |
@@ -442,20 +450,29 @@ leave/close, perdues au reload), `threads`, `unread`, `typing`, `active`, `toast
 **Découplage net** : le store ne connaît pas Socket.IO ; c'est `lib/socket.ts` qui
 importe le store (`useStore.getState()`) et appelle ses actions depuis les écouteurs.
 
+`editMessage(key, msgId, text, from?)` porte une **règle métier**, et pas seulement
+une mutation : c'est le seul endroit où s'autorise la modification d'un message, le
+serveur n'en conservant aucun (§4). Elle est refusée si l'auteur revendiqué `from`
+n'est pas celui du message visé (absent ⇒ écho de sa propre modification, seule une
+bulle `kind:'me'` est alors touchée), si le message a été **retiré** par la
+modération, ou s'il s'agit d'une pièce jointe. `mentionsMe` n'est pas recalculé :
+une modification ne doit pas pouvoir faire sonner quelqu'un après coup.
+
 ### `lib/socket.ts`
 `connect()` : `await initCrypto()` (génère la paire de clés **avant** tout) puis
 `io({ transports: ['websocket', 'polling'] })` sans URL (même origine). Enregistre tous
 les écouteurs du [§6](#6-référence-des-événements-socketio) et expose les actions
-(`identify`, `sendPM`, `sendRoomMessage`, `createRoom`, `joinRoom`, `peekRoom`,
-`reportPM`/`reportRoomMessage`, `sendTyping` throttlé, `leaveRoom`, `kickMember`,
-`closeRoom`, `setRoomPassword`). Le heartbeat est émis toutes les **30 s**.
+(`identify`, `sendPM`, `sendRoomMessage`, `editPM`/`editRoomMessage`, `createRoom`,
+`joinRoom`, `peekRoom`, `reportPM`/`reportRoomMessage`, `sendTyping` throttlé,
+`leaveRoom`, `kickMember`, `closeRoom`, `setRoomPassword`). Le heartbeat est émis
+toutes les **30 s**.
 
 ### Composants clés
 - **`Onboarding.tsx`** : formulaire d'entrée (pseudo ≥ 2, âge ≥ 18, genre, ville avec autocomplétion débouncée sur `/api/cities`, case majorité). Exporte aussi `NetworkBackground` (fond canvas animé).
 - **`Chat.tsx`** : shell (header + `Sidebar` + `Conversation`), auto-jonction par lien, `quit()`.
 - **`Sidebar.tsx`** : « À proximité » (recherche/filtres genre-âge), « Salons », « Conversations privées » hors rayon, et la **carte d'identité** avec le *fingerprint* de la clé de session.
 - **`Conversation.tsx`** : `PMView` (bandeau chiffré + panneau *safety number*) / `RoomView` (badge chiffré/privé/public, liste des membres, menu partager-lien/quitter/fermer, `shareLink()`) / `EmptyState`. Sous-composants : `MessageList`, `TypingIndicator`, `MediaBubble`, `ReportModal`.
-- **`Composer.tsx`** : textarea auto-grow (≤ 2000 car.), envoi sur Enter, pièce jointe image/vidéo.
+- **`Composer.tsx`** : textarea auto-grow (≤ 2000 car.), envoi sur Enter, pièce jointe image/vidéo. Sert aussi à **retoucher** un message (`edit`) : le texte d'origine y revient, le brouillon en cours est mis de côté puis rendu à la sortie, la pièce jointe est inerte et Échap abandonne.
 - **`RoomBrowser.tsx`** : onglets Parcourir/Créer (visibilité, mot de passe optionnel, case « chiffrer de bout en bout »).
 - **`About.tsx`/`AboutSchemas.tsx`** : page pédagogique avec **démo crypto live** (chiffrement/MITM en direct) et planches animées (respect `prefers-reduced-motion`).
 - **`Legal.tsx`** : pages juridiques (CGU, RGPD, DSA, mentions), contact injecté depuis `/api/legal`.
@@ -539,7 +556,8 @@ key      = crypto_kdf_derive_from_key(KEYBYTES, subkey 2, "ROOMKEYS", master) �
 ## 10. Modération & conformité DSA/RGPD
 
 - **Notice-and-action** (DSA art.16) : signalement d'un message de salon ou d'un MP. Sur un contenu **chiffré**, le clair est fourni **volontairement** par le signaleur (`source:'reporter-cleartext'`, marqué `unverified`) — le serveur reste aveugle.
-- **Filtre de mots-clés** (`scanText`) non bloquant, **salons publics uniquement**, jamais sur les MP (RG-07) : un match crée un signalement `source:'filter'` (seul cas où le serveur a « vu » le texte, car il était en clair) sans bloquer la diffusion.
+- **Filtre de mots-clés** (`scanText`) non bloquant, **salons publics uniquement**, jamais sur les MP (RG-07) : un match crée un signalement `source:'filter'` (seul cas où le serveur a « vu » le texte, car il était en clair) sans bloquer la diffusion. La **modification** d'un message y repasse à l'identique, sous le même `messageId` — sinon éditer après coup suffirait à passer sous le filtre.
+- **Un retrait ne se défait pas** : une bulle retirée par la modération est verrouillée côté client, une modification ultérieure de son auteur ne la ressuscite pas.
 - **Console opérateur** (`/operator` → namespace `/admin`) protégée par `OPERATOR_SECRET` : consultation des signalements (pseudo + contenu + horodatage, **jamais d'IP**), retrait ciblé, exclusion volatile, gestion des salons permanents.
 - **Propriétaire de salon = modérateur de première ligne** (RG-06) : reçoit `room:report:owner` et peut kick/close/retirer.
 - **Préservation prospective bornée** : `admin:freeze` gèle le sel IP (jamais rétroactivement), avec dégel automatique après `saltFreezeMaxSec` (72 h) — exception explicite et plafonnée à RG-08.

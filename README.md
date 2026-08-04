@@ -87,6 +87,15 @@ Disponible dans les MP comme dans les salons : le message cité s'affiche en tê
 - En **MP** et en **salon chiffré**, l'identifiant du message et la référence de réponse sont **scellés dans l'enveloppe** ([`frontend/src/lib/body.ts`](./frontend/src/lib/body.ts)) : le serveur ne peut pas reconstruire le graphe des réponses d'une conversation qu'il ne peut pas lire (RG-07).
 - En **salon en clair**, seul l'identifiant du message cité transite — le serveur le relaie sans le stocker ni le vérifier.
 
+### Modification d'un message
+On retouche ses propres mots — une faute de frappe, une heure fausse — dans les MP comme dans les salons. Le texte d'origine revient dans le champ de saisie, la bulle concernée reste désignée pendant qu'on la réécrit, et la nouvelle version se signale par un « modifié » que personne ne peut retirer.
+
+- **Le serveur ne peut pas dire qui a écrit quoi** : il ne conserve aucun message. Ce sont donc les **destinataires** qui autorisent la modification, en comparant l'auteur attesté par la connexion (`fromId`, jamais choisi par le client) à celui du message visé dans leur propre fil. Tenir côté serveur une table « message → auteur », même à TTL court, n'apporterait aucune garantie de plus — un client modifié affiche ce qu'il veut sur son écran — et ajouterait précisément la trace que le projet refuse.
+- **En MP**, l'identifiant du message retouché est **scellé dans l'enveloppe** : le serveur ne sait pas même *lequel* est modifié. En **salon chiffré**, l'enveloppe est relayée telle quelle.
+- **En salon en clair**, le nouveau texte **repasse par le filtre de mots-clés**, sous le même identifiant de message. Sans cela, écrire un message anodin puis le remplacer serait le moyen le plus simple de passer sous la modération.
+- **Un retrait de la modération ne se défait pas** : une bulle retirée est verrouillée, son auteur ne peut plus la réécrire.
+- Un message modifié **ne fait sonner personne** et ne recrée pas de non-lu : ajouter un `@pseudo` après coup met bien le nom en évidence, mais n'alerte pas — sinon la modification deviendrait une sonnette.
+
 ---
 
 ## Architecture & stack

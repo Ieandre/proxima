@@ -103,6 +103,7 @@ type State = {
 
   pushMessage: (key: string, msg: Omit<Message, 'localId'>) => void;
   retractMessage: (key: string, msgId: string) => void;
+  editMessage: (key: string, msgId: string, text: string, from?: string) => void;
   setActive: (active: ActiveKey) => void;
   clearUnread: (key: string) => void;
   markTyping: (key: string, userId: string, pseudo: string) => void;
@@ -226,6 +227,40 @@ export const useStore = create<State>((set, get) => ({
         m.msgId === msgId ? { ...m, retracted: true, text: '', media: undefined } : m,
       );
       return { threads: { ...s.threads, [key]: next } };
+    }),
+
+  /**
+   * Remplace le texte d'un message déjà affiché.
+   *
+   * C'est ICI que se vérifie l'autorisation, et nulle part ailleurs : le serveur
+   * ne conserve aucun message, il n'a donc pas les moyens de savoir qui a écrit
+   * celui que l'on prétend modifier. Le fil, lui, est là. `from` est l'auteur
+   * revendiqué, tel que le serveur l'atteste depuis la connexion de l'émetteur —
+   * une modification qui ne correspond pas à l'auteur du message visé est
+   * ignorée. Absent, c'est l'écho de sa propre modification : seule une bulle à
+   * soi peut alors être touchée.
+   *
+   * Deux refus de plus, qui sont des règles et pas des détails : un message
+   * RETIRÉ par la modération ne se réécrit pas (sinon éditer défait le retrait),
+   * et une pièce jointe n'a pas de texte à remplacer.
+   *
+   * `mentionsMe` n'est pas recalculé : une modification ne doit pas pouvoir faire
+   * sonner quelqu'un après coup, ni le faire sonner à répétition. Le pseudo
+   * ajouté sera bien mis en évidence dans la bulle — la reconnaissance des
+   * mentions se fait à l'affichage, contre les présents — mais sans alerte.
+   */
+  editMessage: (key, msgId, text, from) =>
+    set((s) => {
+      const thread = s.threads[key];
+      if (!thread || !msgId) return {};
+      let touched = false;
+      const next = thread.map((m) => {
+        if (m.msgId !== msgId || m.retracted || m.media) return m;
+        if (from ? m.fromId !== from : m.kind !== 'me') return m;
+        touched = true;
+        return { ...m, text, edited: true };
+      });
+      return touched ? { threads: { ...s.threads, [key]: next } } : {};
     }),
 
   setActive: (active) =>

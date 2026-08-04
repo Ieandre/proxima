@@ -166,6 +166,73 @@ describe('fils de discussion & non-lus', () => {
     expect(s().threads['pm:inexistant']).toBeUndefined();
   });
 
+  /* --- Modification d'un message déjà affiché ---------------------------
+     C'est le fil, ici, qui porte l'autorisation : le serveur ne conserve aucun
+     message, il ne peut donc pas savoir qui a écrit celui que l'on prétend
+     modifier. `from` est l'auteur attesté par la connexion de l'émetteur. */
+
+  it('editMessage remplace le texte et marque la bulle comme modifiée', () => {
+    s().pushMessage(K, { kind: 'them', text: 'demain 18h', msgId: 'm1', fromId: 'bob' } as never);
+    s().editMessage(K, 'm1', 'demain 19h', 'bob');
+    const msg = s().threads[K][0];
+    expect(msg.text).toBe('demain 19h');
+    expect(msg.edited).toBe(true);
+  });
+
+  it('editMessage refuse une modification qui ne vient pas de l\'auteur du message', () => {
+    s().pushMessage(K, { kind: 'them', text: 'ses mots', msgId: 'm1', fromId: 'bob' } as never);
+    s().editMessage(K, 'm1', 'réécrit par un tiers', 'carol');
+    const msg = s().threads[K][0];
+    expect(msg.text).toBe('ses mots');
+    expect(msg.edited).toBeUndefined();
+  });
+
+  it('editMessage sans auteur (écho local) ne touche que ses propres messages', () => {
+    s().pushMessage(K, { kind: 'me', text: 'à moi', msgId: 'mien' } as never);
+    s().pushMessage(K, { kind: 'them', text: 'à lui', msgId: 'sien', fromId: 'bob' } as never);
+    s().editMessage(K, 'mien', 'corrigé');
+    s().editMessage(K, 'sien', 'détourné');
+    const [mien, sien] = s().threads[K];
+    expect(mien.text).toBe('corrigé');
+    expect(sien.text).toBe('à lui');
+  });
+
+  it('editMessage ne réécrit pas un message retiré par la modération', () => {
+    s().pushMessage(K, { kind: 'them', text: 'litigieux', msgId: 'm1', fromId: 'bob' } as never);
+    s().retractMessage(K, 'm1');
+    s().editMessage(K, 'm1', 'me revoilà', 'bob');
+    const msg = s().threads[K][0];
+    expect(msg.retracted).toBe(true);
+    expect(msg.text).toBe(''); // le retrait tient : éditer ne le défait pas
+  });
+
+  it('editMessage laisse une pièce jointe intacte (rien à remplacer)', () => {
+    s().pushMessage(K, {
+      kind: 'them', text: '', msgId: 'm1', fromId: 'bob',
+      media: { url: 'blob:x', mime: 'image/webp', kind: 'image' },
+    } as never);
+    s().editMessage(K, 'm1', 'légende ajoutée', 'bob');
+    const msg = s().threads[K][0];
+    expect(msg.text).toBe('');
+    expect(msg.edited).toBeUndefined();
+  });
+
+  it('editMessage n\'invente rien : conversation ou message inconnus -> no-op', () => {
+    s().editMessage('pm:inexistant', 'm1', 'x', 'bob');
+    expect(s().threads['pm:inexistant']).toBeUndefined();
+    s().pushMessage(K, { kind: 'them', text: 'seul message', msgId: 'm1', fromId: 'bob' } as never);
+    const avant = s().threads[K];
+    s().editMessage(K, 'jamais-vu', 'x', 'bob');
+    expect(s().threads[K]).toBe(avant); // même référence : aucun rendu inutile
+  });
+
+  it('editMessage ne compte pas comme un non-lu', () => {
+    s().pushMessage(K, { kind: 'them', text: 'v1', msgId: 'm1', fromId: 'bob' } as never);
+    s().clearUnread(K);
+    s().editMessage(K, 'm1', 'v2', 'bob');
+    expect(s().unread[K]).toBeUndefined();
+  });
+
   it('clearUnread supprime le compteur', () => {
     s().pushMessage(K, { kind: 'them', text: '1' } as never);
     s().clearUnread(K);

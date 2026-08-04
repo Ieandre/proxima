@@ -270,6 +270,30 @@ export async function connect(): Promise<void> {
   socket.on('room:retract', ({ roomId, messageId }: { roomId: string; messageId: string }) => {
     s().retractMessage(`room:${roomId}`, messageId);
   });
+  /**
+   * Modification d'un message de salon par son auteur. C'est le store qui décide
+   * si elle s'applique, et lui seul : le serveur ne garde aucun message, donc
+   * aucun moyen de savoir qui a écrit celui-là (cf. `handlers/messages.js`). Il
+   * atteste en revanche `fromId`, qu'il tient de la connexion de l'émetteur.
+   */
+  socket.on(
+    'room:edited',
+    (m: { roomId: string; messageId: string; fromId: string; text?: string; enc?: string; env?: RoomEnvelope }) => {
+      let text = m.text || '';
+      if (m.enc) {
+        const key = s().roomKeys[m.roomId];
+        try {
+          if (!key || !m.env) throw new Error('clé absente');
+          text = decodeBody(decryptRoom(key, m.env)).text;
+        } catch {
+          // Modification illisible : la bulle garde ce qu'elle affichait — déjà
+          // « illisible » si la clé manque. On n'a rien de plus juste à mettre.
+          return;
+        }
+      }
+      if (text) s().editMessage(`room:${m.roomId}`, m.messageId, text, m.fromId);
+    },
+  );
   // Notification au propriétaire d'un salon : un message de SON salon a été signalé (1ère ligne, RG-06).
   socket.on('room:report:owner', () => {
     s().showToast('Un message de votre salon a été signalé. Vous pouvez exclure l’auteur ou fermer le salon.', 'warn');
@@ -339,6 +363,20 @@ export async function connect(): Promise<void> {
       s().clearTyping(`pm:${m.fromId}`, m.fromId);
     },
   );
+
+  /**
+   * Modification d'un MP : l'identifiant du message visé voyage DANS l'enveloppe,
+   * le serveur ne sait donc même pas lequel est retouché. Le store écarte une
+   * modification qui ne viendrait pas de l'auteur du message visé.
+   */
+  socket.on('pm:edited', (m: { fromId: string; env: PmEnvelope }) => {
+    try {
+      const body = decodeBody(decryptFrom(m.env));
+      if (body.id && body.text) s().editMessage(`pm:${m.fromId}`, body.id, body.text, m.fromId);
+    } catch {
+      /* Enveloppe illisible : la bulle garde son texte, ce qui vaut mieux qu'un débris. */
+    }
+  });
 
   socket.on('pm:undeliverable', ({ toId }: { toId: string }) => {
     const peer = s().people[toId] || s().pmPeers[toId];
@@ -492,6 +530,20 @@ export async function sendPM(peerId: string, text: string, replyTo?: string): Pr
   s().pushMessage(`pm:${peerId}`, { kind: 'me', msgId, text, ts: now(), encrypted: true, replyTo });
 }
 
+/**
+ * Modifie un MP déjà envoyé. L'identifiant du message visé et son nouveau texte
+ * sont scellés ensemble : le serveur relaie une enveloppe et ignore jusqu'à quel
+ * message on retouche. Appliqué localement dans le même geste — comme `sendPM`,
+ * un MP n'a pas d'écho serveur.
+ */
+export async function editPM(peerId: string, messageId: string, text: string): Promise<void> {
+  const peer = resolvePmPeer(peerId);
+  if (!peer) return;
+  const env = await encryptFor(peer.pub, encodeBody({ id: messageId, text }));
+  socket?.emit('pm:edit', { toId: peerId, env });
+  s().editMessage(`pm:${peerId}`, messageId, text);
+}
+
 export async function sendPMMedia(peerId: string, file: File, replyTo?: string): Promise<void> {
   const peer = resolvePmPeer(peerId);
   if (!peer) return;
@@ -629,6 +681,17 @@ export function sendRoomMessage(roomId: string, text: string, replyTo?: string):
     // Salon en clair : seul l'identifiant du message cité circule, jamais son contenu.
     socket?.emit('room:message', { roomId, text, replyTo, ts: now() });
   }
+}
+
+/**
+ * Modifie un message de salon déjà diffusé. Rien n'est appliqué localement : la
+ * diffusion nous revient comme aux autres présents, donc par le même chemin et
+ * sous la même vérification d'auteur.
+ */
+export function editRoomMessage(roomId: string, messageId: string, text: string): void {
+  const key = s().roomKeys[roomId];
+  if (key) socket?.emit('room:edit', { roomId, messageId, env: encryptRoom(key, encodeBody({ text })) });
+  else socket?.emit('room:edit', { roomId, messageId, text });
 }
 
 // --- Signalement (DSA art.16 notice-and-action) ----------------------------

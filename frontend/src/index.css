@@ -838,6 +838,14 @@ button.quote:hover {
   font-weight: 600;
 }
 
+/* Message en cours de retouche : son texte est parti dans le champ de saisie, la
+   bulle doit rester désignée le temps qu'on le réécrive — sinon on ne sait plus
+   lequel des messages on est en train de modifier. */
+.msg--editing .bubble {
+  outline: 1.5px dashed var(--color-verified);
+  outline-offset: 2px;
+}
+
 /* Message rejoint depuis une citation : un halo bref, le temps de le repérer. */
 .msg--flash {
   border-radius: 14px;
@@ -880,6 +888,14 @@ button.quote:hover {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Retoucher n'est pas répondre : la même barre, mais on doit distinguer les deux
+   d'un coup d'œil quand on a cliqué de travers. */
+.reply-bar--edit {
+  border-left-color: var(--color-verified);
+}
+.reply-bar--edit .reply-bar__title {
+  color: var(--color-verified);
 }
 .reply-bar__close {
   flex: none;

@@ -11,6 +11,8 @@ export function MessageList({
   empty,
   onReport,
   onReply,
+  onEdit,
+  editingId,
   mentionPseudos,
   myPseudo,
 }: {
@@ -20,6 +22,9 @@ export function MessageList({
   empty?: ReactNode;
   onReport?: (m: Message, reason: ReportReason) => void;
   onReply?: (m: Message) => void;
+  onEdit?: (m: Message) => void;
+  /** `msgId` du message en cours de retouche — la bulle reste repérable pendant qu'on la réécrit. */
+  editingId?: string;
   /** Pseudos reconnus comme mentions — les présents du salon ; vide en MP. */
   mentionPseudos?: string[];
   myPseudo?: string;
@@ -81,6 +86,10 @@ export function MessageList({
             // message sans `msgId` (échec de déchiffrement, client antérieur) ne
             // pourrait pas être retrouvé chez le destinataire.
             const canReply = !!onReply && !!m.msgId && !m.retracted;
+            // On ne retouche que ses propres mots, et seulement du texte : une
+            // pièce jointe n'a rien à remplacer, un message retiré est verrouillé.
+            const canEdit = !!onEdit && mine && !!m.msgId && !m.retracted && !m.media;
+            const editing = !!editingId && m.msgId === editingId;
             // Salons : couleur déterministe par auteur (même palette que les avatars).
             // Le pseudo coloré + le liseré sur chaque bulle permettent d'attribuer un
             // message même au milieu d'un groupe, là où le pseudo n'est plus répété.
@@ -98,7 +107,7 @@ export function MessageList({
                 // un changement d'auteur respire. La grille dit qui parle avant qu'on lise.
                 className={`msg flex flex-col ${mine ? 'items-end' : 'items-start'} ${
                   i > 0 && !sameSender ? 'mt-2.5' : ''
-                } ${flash === m.msgId ? 'msg--flash' : ''}`}
+                } ${flash === m.msgId ? 'msg--flash' : ''} ${editing ? 'msg--editing' : ''}`}
               >
                 {showNames && !mine && !sameSender && (
                   <span
@@ -121,14 +130,24 @@ export function MessageList({
                   >
                     {quote}
                     <MessageText text={m.text} pseudos={pseudos} myPseudo={myPseudo} />
-                    {endsRun && <span className="stamp-ts">{fmtTime(m.ts)}</span>}
+                    {/* « modifié » se dit même au milieu d'une série, là où l'heure se
+                        tait : c'est le seul indice qu'un texte n'est plus celui qu'on
+                        a lu. L'horodatage reste celui de la diffusion d'origine. */}
+                    {(endsRun || m.edited) && (
+                      <span className="stamp-ts">{m.edited ? `modifié · ${fmtTime(m.ts)}` : fmtTime(m.ts)}</span>
+                    )}
                   </div>
                 )}
-                {(canReply || canReport) && (
+                {(canReply || canEdit || canReport) && (
                   <div className={`msg-actions ${mine ? 'mr-1' : 'ml-1'}`}>
                     {canReply && (
                       <button className="msg-action" onClick={() => onReply!(m)} title="Répondre à ce message">
                         répondre
+                      </button>
+                    )}
+                    {canEdit && (
+                      <button className="msg-action" onClick={() => onEdit!(m)} title="Modifier ce message">
+                        modifier
                       </button>
                     )}
                     {canReport && (

@@ -153,6 +153,16 @@ describe('E2E — salons publics', () => {
     assert.equal(msg.text, 'bonjour à tous');
     assert.equal(msg.kind, 'text');
     assert.ok(msg.id, 'id de message généré côté serveur');
+
+    // Sa modification revient à tout le salon sous le MÊME identifiant : c'est ce
+    // qui permet à chaque client de retrouver la bulle à réécrire, et à l'auteur
+    // attesté (`fromId`) d'être comparé à celui du message visé.
+    const editOnOwner = once(owner, 'room:edited');
+    member.emit('room:edit', { roomId, messageId: msg.id, text: 'bonjour à toutes et à tous' });
+    const edited = await editOnOwner;
+    assert.equal(edited.messageId, msg.id);
+    assert.equal(edited.text, 'bonjour à toutes et à tous');
+    assert.equal(edited.fromId, msg.fromId);
   });
 
   test('sortie : muette pour qui n\'a fait que passer, annoncée pour qui a parlé', async () => {

@@ -393,6 +393,41 @@ describe('pm:send', () => {
 });
 
 // ===========================================================================
+// MP — modification d'un message envoyé
+//
+// Le serveur ne sait même pas QUEL message est retouché : l'identifiant visé est
+// scellé dans l'enveloppe, avec le nouveau texte.
+// ===========================================================================
+describe('pm:edit', () => {
+  test('relaie l\'enveloppe opaque, l\'auteur attesté par la connexion', async () => {
+    const a = await joinAs(ALICE, { forwardedFor: '203.0.113.17' });
+    const b = await joinAs(BOB, { forwardedFor: '203.0.113.18' });
+    const env = { n: 'NONCE', c: 'CIPHER', pub: 'PUB_ALICE' };
+
+    await a.sock.deliver('pm:edit', { toId: b.id, env, fromId: 'USURPÉ' });
+
+    const edited = b.sock.last('pm:edited');
+    assert.equal(edited.fromId, a.id, 'le payload ne choisit pas l\'auteur');
+    assert.deepEqual(edited.env, env, 'enveloppe transmise telle quelle (serveur aveugle)');
+    assert.equal('messageId' in edited, false, 'le serveur ignore quel message est modifié');
+    assert.equal('text' in edited, false);
+  });
+
+  test('destinataire déconnecté -> pm:undeliverable à l\'émetteur', async () => {
+    const a = await joinAs(ALICE, { forwardedFor: '203.0.113.19' });
+    await a.sock.deliver('pm:edit', { toId: 'inconnu', env: { n: 'N', c: 'C' } });
+    assert.equal(a.sock.last('pm:undeliverable').toId, 'inconnu');
+  });
+
+  test('sans enveloppe : rien n\'est relayé', async () => {
+    const a = await joinAs(ALICE, { forwardedFor: '198.51.100.41' });
+    const b = await joinAs(BOB, { forwardedFor: '198.51.100.42' });
+    await a.sock.deliver('pm:edit', { toId: b.id });
+    assert.equal(b.sock.count('pm:edited'), 0);
+  });
+});
+
+// ===========================================================================
 // SIGNALEMENT de MP (RG-07 : contenu fourni volontairement, marqué unverified)
 // ===========================================================================
 describe('pm:report', () => {
@@ -983,6 +1018,137 @@ describe('room:message', () => {
     }
     owner.sock.clearInbox();
     await owner.sock.deliver('room:message', { roomId, text: 'de trop' });
+    assert.ok(owner.sock.count('error:rate') > 0);
+  });
+});
+
+// ===========================================================================
+// SALONS — modification d'un message déjà diffusé
+//
+// Le serveur ne garde aucun message : il ne peut donc PAS vérifier que l'on est
+// l'auteur de celui que l'on retouche. Ce que ces tests fixent est exactement ce
+// qu'il peut tenir : l'appartenance au salon, l'auteur attesté par la connexion
+// (jamais par le payload), le régime du salon, et le filtre de mots-clés — que
+// modifier ne doit pas permettre de contourner.
+// ===========================================================================
+describe('room:edit', () => {
+  async function makeRoom(ip, roomOpts = {}) {
+    const owner = await joinAs(ALICE, { forwardedFor: ip });
+    const create = await owner.sock.rpc('room:create', { name: 'Chat', type: 'public', ...roomOpts });
+    return { owner, roomId: create.room.id };
+  }
+
+  /** Poste un message et rend son identifiant serveur (la cible d'une modification). */
+  async function post(sock, roomId, text) {
+    await sock.deliver('room:message', { roomId, text });
+    const id = sock.last('room:message').id;
+    sock.clearInbox();
+    return id;
+  }
+
+  test('texte en clair : diffuse la nouvelle version sous l\'identifiant d\'origine', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.110');
+    const messageId = await post(owner.sock, roomId, 'bonjur');
+    await owner.sock.deliver('room:edit', { roomId, messageId, text: 'bonjour' });
+    const edited = owner.sock.last('room:edited');
+    assert.equal(edited.messageId, messageId, 'même ancre : c\'est le même message');
+    assert.equal(edited.text, 'bonjour');
+    assert.equal(edited.fromId, owner.id);
+  });
+
+  test('la modification atteint les autres présents', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.111');
+    const visitor = await joinAs(BOB, { forwardedFor: '203.0.113.112' });
+    await visitor.sock.rpc('room:join', { roomId });
+    const messageId = await post(owner.sock, roomId, 'demain 18h');
+    visitor.sock.clearInbox();
+    await owner.sock.deliver('room:edit', { roomId, messageId, text: 'demain 19h' });
+    assert.equal(visitor.sock.last('room:edited').text, 'demain 19h');
+  });
+
+  test('l\'auteur revendiqué dans le payload est ignoré : seule la connexion fait foi', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.113');
+    const messageId = await post(owner.sock, roomId, 'à moi');
+    await owner.sock.deliver('room:edit', { roomId, messageId, text: 'usurpé', fromId: 'QUELQU_UN_DAUTRE' });
+    assert.equal(owner.sock.last('room:edited').fromId, owner.id);
+  });
+
+  test('non-membre ignoré', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.114');
+    const messageId = await post(owner.sock, roomId, 'entre nous');
+    const intrus = await joinAs(BOB, { forwardedFor: '203.0.113.115' });
+    await intrus.sock.deliver('room:edit', { roomId, messageId, text: 'réécrit par un tiers' });
+    assert.equal(owner.sock.count('room:edited'), 0);
+  });
+
+  test('salon chiffré : relaie une enveloppe opaque (enc=1), sans jamais de clair', async () => {
+    const owner = await joinAs(ALICE, { forwardedFor: '203.0.113.116' });
+    const create = await owner.sock.rpc('room:create', {
+      name: 'Groupe chiffré', encrypted: '1', verifier: 'V', salt: 'S',
+    });
+    const roomId = create.room.id;
+    await owner.sock.deliver('room:message', { roomId, env: { n: 'N1', c: 'C1' } });
+    const messageId = owner.sock.last('room:message').id;
+    const env = { n: 'N2', c: 'C2' };
+    await owner.sock.deliver('room:edit', { roomId, messageId, env });
+    const edited = owner.sock.last('room:edited');
+    assert.equal(edited.enc, '1');
+    assert.deepEqual(edited.env, env);
+    assert.equal('text' in edited, false, 'aucun clair côté serveur');
+  });
+
+  test('salon chiffré : sans enveloppe, rien n\'est relayé', async () => {
+    const owner = await joinAs(ALICE, { forwardedFor: '203.0.113.117' });
+    const create = await owner.sock.rpc('room:create', {
+      name: 'Groupe chiffré', encrypted: '1', verifier: 'V', salt: 'S',
+    });
+    await owner.sock.deliver('room:edit', { roomId: create.room.id, messageId: 'm1', text: 'en clair' });
+    assert.equal(owner.sock.count('room:edited'), 0);
+  });
+
+  test('le texte modifié repasse par le filtre de mots-clés', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.118');
+    // Message anodin : aucun signalement.
+    const messageId = await post(owner.sock, roomId, 'bonjour tout le monde');
+    assert.equal(io.adminEmits.filter((e) => e.event === 'report:new').length, 0);
+    // Sa modification, elle, est bien passée au filtre — sinon éditer suffirait à
+    // le contourner.
+    await owner.sock.deliver('room:edit', { roomId, messageId, text: 'en fait zzzinterdit' });
+    assert.ok(owner.sock.last('room:edited'), 'diffusion non bloquée');
+    const report = io.adminEmits.find((e) => e.event === 'report:new');
+    assert.ok(report, 'signalement filtre créé sur la modification');
+    assert.equal(report.payload.report.source, 'filter');
+    assert.equal(report.payload.report.messageId, messageId, 'le retrait ciblé visera le bon message');
+  });
+
+  test('texte vide ignoré : vider une bulle n\'est pas une modification', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.119');
+    const messageId = await post(owner.sock, roomId, 'à effacer');
+    await owner.sock.deliver('room:edit', { roomId, messageId, text: '   ' });
+    assert.equal(owner.sock.count('room:edited'), 0);
+  });
+
+  test('sans identifiant de message : ignoré', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.120');
+    await post(owner.sock, roomId, 'peu importe');
+    await owner.sock.deliver('room:edit', { roomId, text: 'sans cible' });
+    assert.equal(owner.sock.count('room:edited'), 0);
+  });
+
+  test('identifiant de message borné à 32 caractères', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.121');
+    await post(owner.sock, roomId, 'peu importe');
+    await owner.sock.deliver('room:edit', { roomId, messageId: 'z'.repeat(200), text: 'x' });
+    assert.equal(owner.sock.last('room:edited').messageId.length, 32);
+  });
+
+  test('rate limit : modifier consomme le même quota qu\'écrire', async () => {
+    const { owner, roomId } = await makeRoom('203.0.113.122');
+    for (let i = 0; i < config.rateLimit.maxEvents; i++) {
+      await owner.sock.deliver('room:edit', { roomId, messageId: 'm1', text: `v${i}` });
+    }
+    owner.sock.clearInbox();
+    await owner.sock.deliver('room:edit', { roomId, messageId: 'm1', text: 'de trop' });
     assert.ok(owner.sock.count('error:rate') > 0);
   });
 });

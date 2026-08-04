@@ -6,7 +6,16 @@ import { Avatar, Icon } from '../ui';
 /** Message auquel on répond, tel qu'il s'affiche au-dessus du champ de saisie. */
 export type ReplyDraft = { id: string; author: string; excerpt: string };
 
+/** Message que l'on retouche : son texte revient dans le champ, tel qu'il a été envoyé. */
+export type EditDraft = { id: string; text: string };
+
 const MAX_SUGGESTIONS = 6;
+
+/** Le champ prend la hauteur de son contenu, borné — à la frappe comme au chargement d'un texte à retoucher. */
+function fitHeight(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
 
 export function Composer({
   onSend,
@@ -15,6 +24,8 @@ export function Composer({
   onMedia,
   reply,
   onCancelReply,
+  edit,
+  onCancelEdit,
   mentionables,
 }: {
   onSend: (text: string) => void;
@@ -23,6 +34,13 @@ export function Composer({
   onMedia?: (file: File) => void;
   reply?: ReplyDraft | null;
   onCancelReply?: () => void;
+  /**
+   * Modification en cours. Le champ de saisie sert aussi à retoucher : la
+   * frappe, l'auto-complétion des mentions et Entrée valent déjà là, et une
+   * seconde zone d'édition dans la bulle les redemanderait toutes.
+   */
+  edit?: EditDraft | null;
+  onCancelEdit?: () => void;
   /** Présents que l'on peut interpeller — absent en MP, où il n'y a qu'un interlocuteur. */
   mentionables?: RoomMember[];
 }) {
@@ -32,6 +50,9 @@ export function Composer({
   const [highlighted, setHighlighted] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  // Message en cours de rédaction, mis de côté le temps d'une modification.
+  // `null` = on ne modifie rien, donc rien n'est en attente d'être rendu.
+  const parkedDraft = useRef<string | null>(null);
 
   const suggestions = useMemo(() => {
     if (!pending || !mentionables?.length) return [];
@@ -72,11 +93,41 @@ export function Composer({
     if (reply) areaRef.current?.focus();
   }, [reply?.id]);
 
+  /**
+   * Entrer en modification charge le texte d'origine ; en sortir — validée ou
+   * abandonnée — rend le brouillon qu'on avait en cours. Sans cette mise de côté,
+   * cliquer « modifier » au milieu d'une phrase l'effacerait sans recours.
+   */
+  useEffect(() => {
+    if (edit) {
+      // Seulement à l'ENTRÉE : passer d'un message à l'autre ne doit pas prendre
+      // la retouche en cours pour un brouillon.
+      if (parkedDraft.current === null) parkedDraft.current = text;
+      setText(edit.text);
+      areaRef.current?.focus();
+    } else if (parkedDraft.current !== null) {
+      setText(parkedDraft.current);
+      parkedDraft.current = null;
+    } else {
+      return; // premier rendu, rien à charger ni à rendre
+    }
+    setPending(null);
+    // La hauteur se règle une image plus tard : le texte qu'on vient de poser
+    // n'est pas encore dans le DOM, `scrollHeight` mesurerait l'ancien.
+    requestAnimationFrame(() => {
+      if (areaRef.current) fitHeight(areaRef.current);
+    });
+    // Le texte n'est PAS une dépendance : cet effet ne joue qu'au passage d'un
+    // état à l'autre, sinon chaque frappe rechargerait le texte d'origine.
+  }, [edit?.id]);
+
   function send() {
     const t = text.trim();
     if (!t) return;
     onSend(t.slice(0, 2000));
-    setText('');
+    // Une modification validée n'a pas à effacer le champ elle-même : le parent
+    // referme l'édition, ce qui rend son brouillon (cf. l'effet ci-dessus).
+    if (!edit) setText('');
     setPending(null);
     if (areaRef.current) areaRef.current.style.height = 'auto';
   }
@@ -108,7 +159,24 @@ export function Composer({
         </ul>
       )}
 
-      {reply && (
+      {edit && (
+        <div className="reply-bar reply-bar--edit fade-up">
+          <div className="reply-bar__body">
+            <div className="reply-bar__title">Modification du message</div>
+            <div className="reply-bar__text">Entrée pour valider, Échap pour abandonner.</div>
+          </div>
+          <button
+            className="reply-bar__close"
+            onClick={onCancelEdit}
+            aria-label="Abandonner la modification"
+            title="Abandonner la modification"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      )}
+
+      {reply && !edit && (
         <div className="reply-bar fade-up">
           <div className="reply-bar__body">
             <div className="reply-bar__title">Réponse à {reply.author}</div>
@@ -137,8 +205,11 @@ export function Composer({
             <button
               className="btn btn-ghost h-[44px] px-3"
               onClick={() => fileRef.current?.click()}
+              // Une pièce jointe ne remplace pas un texte : le bouton reste en
+              // place mais inerte, plutôt que de disparaître sous le curseur.
+              disabled={!!edit}
               aria-label="Joindre une photo ou une vidéo"
-              title="Joindre une photo ou une vidéo"
+              title={edit ? 'Modification en cours' : 'Joindre une photo ou une vidéo'}
             >
               <Icon name="paperclip" size={18} />
             </button>
@@ -156,8 +227,7 @@ export function Composer({
             setText(e.target.value);
             if (e.target.value.trim()) onTyping?.();
             syncPending(e.target);
-            e.target.style.height = 'auto';
-            e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+            fitHeight(e.target);
           }}
           onSelect={(e) => syncPending(e.currentTarget)}
           onBlur={() => setPending(null)}
@@ -185,15 +255,22 @@ export function Composer({
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               send();
-            } else if (e.key === 'Escape' && reply) {
-              // Échap abandonne la réponse avant de fermer quoi que ce soit d'autre.
+            } else if (e.key === 'Escape' && (edit || reply)) {
+              // Échap abandonne la retouche ou la réponse en cours avant de
+              // fermer quoi que ce soit d'autre.
               e.preventDefault();
-              onCancelReply?.();
+              if (edit) onCancelEdit?.();
+              else onCancelReply?.();
             }
           }}
         />
-        <button className="btn btn-primary h-[44px] px-4" onClick={send} disabled={!text.trim()} aria-label="Envoyer">
-          <Icon name="send" size={17} />
+        <button
+          className="btn btn-primary h-[44px] px-4"
+          onClick={send}
+          disabled={!text.trim()}
+          aria-label={edit ? 'Valider la modification' : 'Envoyer'}
+        >
+          <Icon name={edit ? 'check' : 'send'} size={17} />
         </button>
       </div>
     </div>
