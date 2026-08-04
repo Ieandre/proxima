@@ -471,7 +471,7 @@ toutes les **30 s**.
 - **`Onboarding.tsx`** : formulaire d'entrée (pseudo ≥ 2, âge ≥ 18, genre, ville avec autocomplétion débouncée sur `/api/cities`, case majorité). Exporte aussi `NetworkBackground` (fond canvas animé).
 - **`Chat.tsx`** : shell (header + `Sidebar` + `Conversation`), auto-jonction par lien, `quit()`.
 - **`Sidebar.tsx`** : « À proximité » (recherche/filtres genre-âge), « Salons », « Conversations privées » hors rayon, et la **carte d'identité** avec le *fingerprint* de la clé de session.
-- **`Conversation.tsx`** : `PMView` (bandeau chiffré + panneau *safety number*) / `RoomView` (badge chiffré/privé/public, liste des membres, menu partager-lien/quitter/fermer, `shareLink()`) / `EmptyState`. Sous-composants : `MessageList`, `TypingIndicator`, `MediaBubble`, `ReportModal`.
+- **`Conversation.tsx`** : `PMView` (bandeau chiffré + panneau *safety number*) / `RoomView` (badge chiffré/privé/public, liste des membres, menu partager-lien/quitter/fermer, `shareLink()`) / `EmptyState`. Sous-composants : `MessageList`, `TypingIndicator`, `MediaBubble`, `ReportModal`. Dans `MessageList`, `MessageText` interprète le balisage léger (cf. plus bas) et `Mentions` met en évidence les `@pseudo` des présents — jamais dans un `code`, où un `@pseudo` est justement là pour rester tel quel.
 - **`Composer.tsx`** : textarea auto-grow (≤ 2000 car.), envoi sur Enter, pièce jointe image/vidéo — au trombone (envoi immédiat) ou **au presse-papiers** (`mediaFromClipboard`, cf. plus bas), qui passe par un aperçu à confirmer. Sert aussi à **retoucher** un message (`edit`) : le texte d'origine y revient, le brouillon en cours est mis de côté puis rendu à la sortie, la pièce jointe est inerte et Échap abandonne.
 - **`RoomBrowser.tsx`** : onglets Parcourir/Créer (visibilité, mot de passe optionnel, case « chiffrer de bout en bout »).
 - **`About.tsx`/`AboutSchemas.tsx`** : page pédagogique avec **démo crypto live** (chiffrement/MITM en direct) et planches animées (respect `prefers-reduced-motion`).
@@ -492,6 +492,34 @@ réverbération courte convolée depuis un bruit décroissant généré à la vo
   de la visite — sans quoi iOS garderait les notifications muettes toute la session.
 - Sourdine dans la barre supérieure, mémorisée en `sessionStorage` (même doctrine que
   `lib/theme.ts` : rien ne survit à l'onglet).
+
+### Balisage des messages (`lib/markdown.ts`)
+`parseMarkdown(text)` rend un **arbre** de blocs (`p`, `quote`, `pre`) et de nœuds en
+ligne (`text`, `code`, `b`/`i`/`u`/`s`/`spoiler`), que `MessageList` traduit en nœuds
+React. **Jamais de HTML assemblé puis réinjecté** : il n'y a donc rien à assainir — un
+message ne peut produire que les quelques balises prévues, et un `<script>` tapé reste
+du texte (React l'échappe ; la CSP l'interdirait de toute façon).
+
+Reconnu : `**gras**`, `*ital*`/`_ital_`, `***les deux***`, `__souligné__`, `~~barré~~`,
+`` `code` ``, bloc entre lignes de trois barrières (langage optionnel, non coloré),
+`> ` en tête de ligne (les lignes voisines se rejoignant en une citation), `||spoiler||`
+(masqué jusqu'au clic — un affichage, pas un secret : le texte est dans le DOM) et `\*`
+pour écrire un marqueur sans l'invoquer. **Absents volontairement** : les titres, les
+images (rien ne doit charger une URL tierce depuis un message : IP du lecteur) et les
+liens `[texte](url)`, dont le libellé masquerait la destination dans un salon anonyme.
+
+Trois règles s'écartent de la lettre de Markdown pour coller à l'usage : le contenu
+d'un marqueur ne peut ni commencer ni finir par un blanc (« 3 * 4 et 5 * 6 » n'est pas
+de l'italique), un `_` collé à un mot est inerte (`nom_de_variable`), et la fermeture
+doit être une série de même longueur que l'ouverture. Un marqueur non refermé, un bloc
+de code non clos ou une imbrication au-delà de 8 niveaux redeviennent du texte. Un
+message sans balisage rend **un seul bloc dont le texte est l'original**, ce qui garantit
+le rendu d'avant, retours à la ligne compris.
+
+Le texte part sur le fil **tel qu'il a été tapé** : rien n'est transformé avant l'envoi,
+le serveur ignore qu'un message était en gras, et la modération lit ce qui a été envoyé
+(le signalement transmet donc le texte brut, marques comprises). `plainText(text)` retire
+le balisage pour les aperçus (citation, barre de réponse) en **masquant les spoilers**.
 
 ### Médias (`lib/media.ts`)
 `prepareMedia(file)` : GIF tel quel (≤ 8 Mo) ; autres images downscalées (≤ 1600 px,

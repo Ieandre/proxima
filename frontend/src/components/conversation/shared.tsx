@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../../store/useStore';
+import { plainText } from '../../lib/markdown';
 import { type Message } from '../../lib/types';
 import { type EditDraft, type ReplyDraft } from '../chat/Composer';
 import { NetworkBackground } from '../NetworkBackground';
@@ -10,9 +11,13 @@ import { Icon, Logo } from '../ui';
 export const fmtTime = (ts: number) =>
   new Date(ts || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-/** Ce qu'un message donne à lire quand il est cité : son texte, ou la nature de sa pièce jointe. */
+/**
+ * Ce qu'un message donne à lire quand il est cité : son texte, ou la nature de sa
+ * pièce jointe. Le balisage est retiré (`plainText`) — un aperçu d'une ligne n'a
+ * pas la place du style, et encore moins celle de ses marques.
+ */
 export const excerptOf = (m: Message) =>
-  m.retracted ? 'Message retiré' : m.media ? (m.media.kind === 'video' ? 'Vidéo' : 'Photo') : m.text;
+  m.retracted ? 'Message retiré' : m.media ? (m.media.kind === 'video' ? 'Vidéo' : 'Photo') : plainText(m.text);
 
 /**
  * Texte d'un message, mentions mises en évidence. La reconnaissance se fait contre

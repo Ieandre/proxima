@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { parseMarkdown, type Block, type Inline } from '../../lib/markdown';
 import { splitMentions } from '../../lib/mentions';
 import { REPORT_REASON_LABEL, type MediaAttachment, type Message, type ReportReason } from '../../lib/types';
 import { avatarColor, Modal } from '../ui';
@@ -180,8 +181,71 @@ export function MessageList({
   );
 }
 
+/**
+ * Texte d'un message : balisage léger interprété (cf. `lib/markdown.ts`) et
+ * mentions mises en évidence. L'arbre est rendu en nœuds React — jamais du HTML
+ * assemblé puis réinjecté —, ce qui est aussi ce qui rend l'opération sûre : un
+ * message ne peut produire que les quelques balises prévues ici.
+ */
 function MessageText({ text, pseudos, myPseudo }: { text: string; pseudos: string[]; myPseudo?: string }) {
-  const parts = useMemo(() => splitMentions(text, pseudos), [text, pseudos]);
+  const blocks = useMemo(() => parseMarkdown(text), [text]);
+  return useMemo(
+    () => <>{blocks.map((b, i) => renderBlock(b, i, pseudos, myPseudo))}</>,
+    [blocks, pseudos, myPseudo],
+  );
+}
+
+function renderBlock(block: Block, key: number, pseudos: string[], myPseudo?: string): ReactNode {
+  if (block.t === 'pre') {
+    // Le nom de langage est conservé mais pas coloré : une coloration syntaxique
+    // demanderait une grammaire par langage, pour un gain nul dans une bulle.
+    return (
+      <pre key={key} className="md-pre" data-lang={block.lang}>
+        <code>{block.v}</code>
+      </pre>
+    );
+  }
+  const kids = renderInline(block.kids, pseudos, myPseudo);
+  if (block.t === 'quote') {
+    return (
+      <blockquote key={key} className="md-quote">
+        {kids}
+      </blockquote>
+    );
+  }
+  return <span key={key}>{kids}</span>;
+}
+
+function renderInline(nodes: Inline[], pseudos: string[], myPseudo?: string): ReactNode[] {
+  return nodes.map((n, i) => {
+    switch (n.t) {
+      // Dans du code, un « @pseudo » reste un `@pseudo` : c'est tout l'intérêt
+      // de l'avoir écrit là.
+      case 'code':
+        return (
+          <code key={i} className="md-code">
+            {n.v}
+          </code>
+        );
+      case 'b':
+        return <strong key={i}>{renderInline(n.kids, pseudos, myPseudo)}</strong>;
+      case 'i':
+        return <em key={i}>{renderInline(n.kids, pseudos, myPseudo)}</em>;
+      case 'u':
+        return <u key={i}>{renderInline(n.kids, pseudos, myPseudo)}</u>;
+      case 's':
+        return <s key={i}>{renderInline(n.kids, pseudos, myPseudo)}</s>;
+      case 'spoiler':
+        return <Spoiler key={i}>{renderInline(n.kids, pseudos, myPseudo)}</Spoiler>;
+      default:
+        return <Mentions key={i} text={n.v} pseudos={pseudos} myPseudo={myPseudo} />;
+    }
+  });
+}
+
+/** Segment de texte ordinaire, mentions reconnues contre les présents. */
+function Mentions({ text, pseudos, myPseudo }: { text: string; pseudos: string[]; myPseudo?: string }) {
+  const parts = splitMentions(text, pseudos);
   if (parts.length === 1 && !parts[0].pseudo) return <>{text}</>;
   return (
     <>
@@ -198,6 +262,27 @@ function MessageText({ text, pseudos, myPseudo }: { text: string; pseudos: strin
         ),
       )}
     </>
+  );
+}
+
+/**
+ * Contenu masqué. Il est dans le DOM dès le départ — on ne peut pas faire
+ * autrement sans le demander au serveur, qui ne l'a pas — donc le masque est un
+ * affichage, pas un secret : il protège d'un regard, pas d'un curieux déterminé.
+ */
+function Spoiler({ children }: { children: ReactNode }) {
+  const [shown, setShown] = useState(false);
+  if (shown) return <span className="md-spoiler md-spoiler--on">{children}</span>;
+  return (
+    <button
+      type="button"
+      className="md-spoiler"
+      onClick={() => setShown(true)}
+      title="Afficher le contenu masqué"
+      aria-label="Contenu masqué : afficher"
+    >
+      {children}
+    </button>
   );
 }
 

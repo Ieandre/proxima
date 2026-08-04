@@ -80,6 +80,15 @@ Dans un salon, taper `@` propose les **présents** ; le pseudo choisi s'insère 
 - La reconnaissance se fait à l'affichage, contre la liste des présents ([`frontend/src/lib/mentions.ts`](./frontend/src/lib/mentions.ts)) : un `@inconnu` reste du texte ordinaire, et une personne partie cesse d'être mise en évidence.
 - Être nommé teinte la bulle, fait passer la pastille du salon en `@n` et déclenche une alerte si l'on n'a pas le salon sous les yeux.
 
+### Balisage des messages
+Pas de barre d'outils : on tape le balisage, il est interprété à l'affichage ([`frontend/src/lib/markdown.ts`](./frontend/src/lib/markdown.ts)).
+
+`**gras**`, `*italique*`, `***les deux***`, `__souligné__`, `~~barré~~`, `` `code` ``, un bloc de code entre lignes de trois barrières, `> ` en tête de ligne pour citer, `||spoiler||` masqué jusqu'au clic, et `\*` pour écrire un marqueur sans l'invoquer.
+
+- Le message part sur le fil **tel qu'il a été tapé** : rien n'est transformé avant l'envoi, le serveur ignore qu'un texte était en gras, et la modération lit exactement ce qui a été envoyé.
+- Le rendu produit des **nœuds, jamais du HTML** : un message ne peut fabriquer que les quelques balises prévues, et un `<script>` tapé s'affiche comme du texte.
+- Pas de titres, pas d'images, pas de liens `[texte](url)` : une image chargerait une URL tierce (donc l'IP du lecteur), et un libellé qui masque sa destination est une arme dans un salon anonyme.
+
 ### Réponse à un message
 Disponible dans les MP comme dans les salons : le message cité s'affiche en tête de la bulle, et un clic dessus ramène à l'original.
 

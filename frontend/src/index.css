@@ -776,6 +776,75 @@ button.quote:hover {
   background: rgba(255, 255, 255, 0.24);
 }
 
+/* Balisage léger des messages (cf. lib/markdown.ts). Le gras, l'italique, le
+   souligné et le barré n'ont pas de style propre : les balises portent déjà le
+   leur. Restent le code, la citation et le spoiler, qui demandent une surface. */
+.md-code,
+.md-pre {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+}
+.md-code {
+  padding: 0.08em 0.32em;
+}
+/* Un bloc de code garde ses alinéas et ne pousse jamais la bulle : il défile chez
+   lui, là où `word-break` du texte courant briserait l'indentation. */
+.md-pre {
+  display: block;
+  margin: 0.35rem 0;
+  padding: 0.5rem 0.65rem;
+  overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+  line-height: 1.4;
+}
+/* Citation dans un message : le même liseré que la citation de réponse, mais
+   posée dans le fil du texte — ce n'est pas un rappel, c'est ce qu'on cite. */
+.md-quote {
+  display: block;
+  margin: 0.2rem 0;
+  padding: 0.05rem 0 0.05rem 0.6rem;
+  border-left: 3px solid color-mix(in srgb, currentColor 35%, transparent);
+  opacity: 0.92;
+}
+/* Spoiler : un aplat opaque qui ne laisse rien deviner, pas un flou (le flou se
+   devine, et se retire d'une capture d'écran). */
+.md-spoiler {
+  /* `inline`, jamais `inline-block` : le masque doit pouvoir se couper en fin de
+     ligne comme le texte qui l'entoure, sinon un spoiler d'une phrase déborde. */
+  display: inline;
+  white-space: inherit;
+  border-radius: 5px;
+  padding: 0 0.18em;
+  color: transparent;
+  background: color-mix(in srgb, var(--color-ink) 82%, transparent);
+  cursor: pointer;
+  text-align: inherit;
+  transition: background 0.16s, color 0.16s;
+}
+.md-spoiler:hover {
+  background: color-mix(in srgb, var(--color-ink) 70%, transparent);
+}
+.md-spoiler--on {
+  color: inherit;
+  background: color-mix(in srgb, var(--color-ink) 10%, transparent);
+  cursor: default;
+}
+/* Sur l'aplat bleu d'une bulle « moi », une teinte d'encre serait invisible. */
+.bubble-me .md-code,
+.bubble-me .md-pre,
+.bubble-me .md-spoiler--on {
+  background: rgba(255, 255, 255, 0.18);
+}
+.bubble-me .md-spoiler {
+  background: rgba(0, 0, 0, 0.55);
+}
+.bubble-me .md-spoiler:hover {
+  background: rgba(0, 0, 0, 0.42);
+}
+
 /* Mention « @pseudo » : un aplat léger, pas une couleur de texte — sur une bulle
    bleue comme sur une bulle grise, la teinte de fond suit celle qui la porte. */
 .mention {
