@@ -45,4 +45,15 @@ async function presenceCount() {
   return client.zCard(KEY);
 }
 
-module.exports = { addPresence, removePresence, nearbyIds, presenceCount, KEY };
+/**
+ * Vide l'index de présence et renvoie le nombre d'entrées effacées. Réservé à la
+ * remise à zéro opérateur (cf. `domain/purge.js`) : en exploitation normale, une
+ * présence ne disparaît qu'une par une, avec la session qui la portait.
+ */
+async function clearPresence() {
+  const removed = await client.zCard(KEY);
+  await client.del(KEY);
+  return removed;
+}
+
+module.exports = { addPresence, removePresence, nearbyIds, presenceCount, clearPresence, KEY };

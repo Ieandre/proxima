@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { client } = require('../infra/redis');
+const { scanKeys } = require('../infra/scan');
 const config = require('../config');
 
 /**
@@ -20,9 +21,11 @@ const config = require('../config');
  * durable, c'est-à-dire une identité persistante déguisée.
  */
 
-const key = (token) => `invite:${token}`;
+const PREFIX = 'invite:';
+const key = (token) => `${PREFIX}${token}`;
 /** Index inverse : une seule invitation vivante par session (cf. `create`). */
-const ownerKey = (ownerId) => `invite:by:${ownerId}`;
+const OWNER_PREFIX = `${PREFIX}by:`;
+const ownerKey = (ownerId) => `${OWNER_PREFIX}${ownerId}`;
 
 /** 128 bits : le jeton est un secret d'accès, il doit résister au devinage. */
 const genToken = () => crypto.randomBytes(16).toString('base64url');
@@ -79,4 +82,15 @@ async function destroy(token) {
   await client.del(ownerKey(invite.owner));
 }
 
-module.exports = { create, get, claim, destroy };
+/**
+ * Efface toutes les invitations, index inverse compris, et renvoie le nombre de
+ * LIENS détruits (pas de clés : l'index inverse n'est pas une invitation, il désigne
+ * celle de son auteur). Réservé à la remise à zéro opérateur — cf. `domain/purge.js`.
+ */
+async function purgeAll() {
+  const keys = await scanKeys(`${PREFIX}*`);
+  if (keys.length) await client.del(keys);
+  return keys.filter((k) => !k.startsWith(OWNER_PREFIX)).length;
+}
+
+module.exports = { create, get, claim, destroy, purgeAll };

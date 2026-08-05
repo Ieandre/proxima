@@ -65,6 +65,22 @@ class FakeRedis {
     return 'OK';
   }
 
+  /**
+   * Balayage par curseur (`SCAN`). Le fake rend TOUT en un seul lot et un curseur de
+   * retour à 0 : la boucle de `infra/scan.js` s'arrête au premier tour et les tests
+   * restent déterministes. Seul le joker `*` du motif est interprété — le seul que le
+   * serveur emploie.
+   */
+  async scan(_cursor, opts = {}) {
+    const pattern = String(opts.MATCH || opts.match || '*');
+    const re = new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
+    const keys = new Set();
+    for (const store of [this.hashes, this.zsets, this.sets, this.strings, this.geos]) {
+      for (const key of store.keys()) if (re.test(key)) keys.add(key);
+    }
+    return { cursor: 0, keys: [...keys] };
+  }
+
   // ---- Chaînes -----------------------------------------------------------
   async incr(key) {
     const next = (Number(this.strings.get(key)) || 0) + 1;

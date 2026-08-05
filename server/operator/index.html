@@ -34,6 +34,9 @@
       button { background: #1f6feb; color: #fff; border-color: #1f6feb; cursor: pointer; }
       button.ghost { background: transparent; color: #9aa4b2; border-color: #2c3440; }
       button.danger { background: #b62324; border-color: #b62324; }
+      /* Un bouton hors d'usage doit se voir : sinon la confirmation de la remise à zéro
+         donne l'illusion d'un geste armé. */
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
       .panel { border: 1px solid #232a34; border-radius: 12px; padding: 14px; margin-bottom: 14px; background: #131820; }
       .muted { color: #9aa4b2; font-size: 13px; }
       .report { border: 1px solid #232a34; border-radius: 10px; padding: 12px; margin-bottom: 10px; background: #161b22; }
@@ -71,6 +74,51 @@
       .health .dot.ok { background: #6ee7a8; }
       .health .dot.warn { background: #ffd479; }
       .health .dot.err { background: #ff8a8a; }
+
+      /* Salons : des lignes séparées par un filet, pas des cartes — la densité vient
+         de la liste elle-même, et une carte par salon ferait croire à une hiérarchie
+         qui n'existe pas. */
+      .rows { border-top: 1px solid #232a34; margin-top: 12px; }
+      .rowitem { border-bottom: 1px solid #232a34; padding: 10px 2px; }
+      .rowhead { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+      .rowname { font-weight: 600; }
+      .rowid { font: 11px/1 monospace; color: #6b7480; }
+      .rowcount { font: 13px/1 monospace; color: #9aa4b2; margin-left: auto; white-space: nowrap; }
+      .rowactions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+      .rowactions button { padding: 5px 10px; font-size: 13px; }
+      /* Fermer est destructif, mais il se répète à chaque ligne : en aplat rouge, la liste
+         devient un mur d'alerte et le rouge ne veut plus rien dire. Contour ici, aplat
+         réservé au seul geste global (la remise à zéro). */
+      .rowactions button.danger, .member button.danger {
+        background: transparent;
+        color: #ff8a8a;
+        border-color: #5a2122;
+      }
+      .rowactions button.danger:hover, .member button.danger:hover {
+        background: #2a1516;
+        border-color: #b62324;
+      }
+      .badge.type { background: #1c2b3a; color: #8ab4f8; }
+      .badge.locked { background: #3a2f14; color: #ffd479; }
+      .badge.perm { background: #133a2a; color: #6ee7a8; }
+      .badge.region { background: #2b2440; color: #c4b5fd; }
+      .members { margin-top: 10px; padding-left: 12px; border-left: 2px solid #232a34; }
+      .member { display: flex; gap: 10px; align-items: center; padding: 5px 0; font-size: 14px; }
+      .member .who { display: flex; gap: 8px; align-items: baseline; }
+      .member button { margin-left: auto; padding: 4px 9px; font-size: 12px; }
+      .rename { display: flex; gap: 6px; margin-top: 8px; }
+      .rename input { flex: 0 1 240px; min-width: 140px; padding: 6px 10px; }
+      /* Étiquette au-dessus du champ. `flex: none` est nécessaire : la règle globale
+         `input { flex: 1 }` s'appliquerait à la HAUTEUR dans ce conteneur en colonne. */
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field label { font-size: 13px; color: #9aa4b2; }
+      .field input { flex: none; width: 220px; max-width: 100%; }
+
+      /* Remise à zéro : le seul geste irréversible de la console. Le liseré rouge la
+         distingue à la vue, la phrase à taper à l'usage. */
+      .panel.destructive { border-color: #5a2122; border-left: 3px solid #b62324; }
+      .counts { margin-top: 12px; font: 13px/1.7 monospace; color: #9aa4b2; }
+      .counts b { color: #e6e9ef; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -122,6 +170,34 @@
 
         <div class="panel">
           <div class="row" style="justify-content: space-between">
+            <strong>Salons</strong>
+            <span class="muted" id="roomsCount">0</span>
+          </div>
+          <p class="muted">
+            Tous les salons vivants, y compris ceux que l'annuaire public ne montre pas (privés sur invitation,
+            salons de région). Le nombre de présents est donné ici ; les pseudos ne s'affichent qu'au dépliage
+            d'un salon.
+          </p>
+
+          <div class="rows" id="roomRows"></div>
+          <div id="roomsPending" class="empty">Chargement des salons.</div>
+          <div id="roomsEmpty" class="empty" hidden>Aucun salon ouvert.</div>
+
+          <div class="row" style="margin-top: 14px; align-items: flex-end">
+            <div class="field">
+              <label for="newSlug">Nouveau salon permanent (identifiant)</label>
+              <input id="newSlug" type="text" maxlength="32" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="newName">Nom affiché</label>
+              <input id="newName" type="text" maxlength="32" autocomplete="off" />
+            </div>
+            <button id="createRoom">Créer</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row" style="justify-content: space-between">
             <strong>Réquisition légale</strong>
             <span class="muted" id="freezeState">sel IP : rotation normale</span>
           </div>
@@ -142,6 +218,27 @@
           </div>
           <div id="reports"></div>
           <div id="empty" class="empty">Aucun signalement en attente.</div>
+        </div>
+
+        <div class="panel destructive">
+          <strong>Remise à zéro</strong>
+          <p class="muted">
+            Efface l'état de conversation : sessions, présence, salons et invitations. La portée est
+            <strong>globale</strong> (toutes les instances). Les salons permanents de la liste de référence sont
+            recréés aussitôt ; les personnes connectées sont déconnectées et leur client se réidentifie seul.
+          </p>
+          <p class="muted">
+            Ce qui survit : les signalements en attente (art. 16), les exclusions volatiles et les incidents de
+            réquisition. Un signalement ne se purge qu'à l'unité, en le résolvant.
+          </p>
+          <div class="row" style="align-items: flex-end">
+            <div class="field">
+              <label for="resetConfirm">Tapez REINITIALISER pour confirmer</label>
+              <input id="resetConfirm" type="text" maxlength="32" autocomplete="off" spellcheck="false" />
+            </div>
+            <button id="reset" class="danger" disabled>Tout réinitialiser</button>
+          </div>
+          <div id="resetCounts" class="counts" hidden></div>
         </div>
       </section>
     </main>

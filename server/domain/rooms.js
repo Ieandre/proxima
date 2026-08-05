@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { client } = require('../infra/redis');
+const { scanKeys } = require('../infra/scan');
 const { genId } = require('../protocol');
 const sessions = require('./sessions');
 const config = require('../config');
@@ -49,8 +50,9 @@ const config = require('../config');
  * deux époques distinctes, et la plus basse rattrape la plus haute au premier
  * message.
  */
-const roomKey = (id) => `room:${id}`;
-const membersKey = (id) => `room:${id}:members`;
+const ROOM_PREFIX = 'room:';
+const roomKey = (id) => `${ROOM_PREFIX}${id}`;
+const membersKey = (id) => `${ROOM_PREFIX}${id}:members`;
 const PUBLIC_INDEX = 'rooms:pub';
 
 let joinCounter = 0;
@@ -223,6 +225,7 @@ async function getRoom(id) {
     keyEpoch: Number(h.keyEpoch || 0),
     salt: h.salt || '',
     persistent: h.persistent === '1',
+    createdAt: Number(h.createdAt || 0),
   };
 }
 
@@ -373,6 +376,62 @@ async function listPublic() {
   return out;
 }
 
+/**
+ * TOUS les salons vivants, pour la console opérateur — y compris ceux que
+ * `listPublic` tait : les salons de région (hors annuaire) et les privés sur
+ * invitation, que l'index `rooms:pub` ne référence même pas. D'où le balayage des
+ * clés plutôt qu'une lecture d'index : un salon qu'aucun index ne désigne est
+ * justement celui qu'il faut pouvoir voir.
+ *
+ * Lecture SEULE, à la différence de `listPublic` : aucune purge RG-05 au passage.
+ * Afficher un état ne doit pas le modifier — sans quoi l'opérateur qui regarde
+ * deviendrait la cause de ce qu'il observe. Le ménage reste à `listPublic`, que les
+ * métriques appellent au même rythme.
+ *
+ * Ce que la liste ne dit PAS, et c'est délibéré : qui est là. Elle donne un nombre ;
+ * les pseudos et les identifiants de session ne s'obtiennent que salon par salon
+ * (`admin:room:members`), sur le seul salon que l'opérateur ouvre.
+ */
+async function listAll() {
+  const keys = await scanKeys(`${ROOM_PREFIX}*`);
+  const out = [];
+  for (const key of keys) {
+    const id = key.slice(ROOM_PREFIX.length);
+    // `room:<id>:members` partage le préfixe des métadonnées ; un identifiant de salon
+    // (`genId` ou slug) ne contient jamais de deux-points.
+    if (id.includes(':')) continue;
+    const room = await getRoom(id);
+    if (!room) continue;
+    out.push({
+      id,
+      name: room.name,
+      type: room.type,
+      keyMode: room.keyMode,
+      // La PORTE d'un privé sur invitation, distincte du régime de clé.
+      hasPassword: room.hasPassword,
+      persistent: isPersistentRoom(room),
+      region: isRegionRoomId(id),
+      count: await memberCount(id),
+      createdAt: room.createdAt,
+    });
+  }
+  out.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'fr'));
+  return out;
+}
+
+/**
+ * Efface TOUS les salons — métadonnées, membres et index public — et renvoie le
+ * nombre de salons détruits. Les permanents partent avec les autres : ce sont des
+ * clés `room:*` comme le reste, et leur relève appartient à l'appelant, qui rejoue
+ * le seed (cf. `admin:reset`). Réservé à la remise à zéro opérateur.
+ */
+async function purgeAll() {
+  const keys = await scanKeys(`${ROOM_PREFIX}*`);
+  if (keys.length) await client.del(keys);
+  await client.del(PUBLIC_INDEX);
+  return keys.filter((k) => !k.slice(ROOM_PREFIX.length).includes(':')).length;
+}
+
 module.exports = {
   createRoom,
   createPersistentRoom,
@@ -398,5 +457,7 @@ module.exports = {
   verifyVerifier,
   deleteRoom,
   listPublic,
+  listAll,
+  purgeAll,
   toPublic,
 };

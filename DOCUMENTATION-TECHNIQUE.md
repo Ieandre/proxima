@@ -201,6 +201,14 @@ Instancie **trois** clients sur `config.redisUrl` :
 et `appendonly no` (dans un try/catch toléré si l'hébergeur managé l'interdit) :
 **le contenu utilisateur ne doit jamais toucher le disque**.
 
+### `infra/scan.js` — balayage de clés
+`scanKeys(pattern)` → toutes les clés correspondantes, via **`SCAN`** et jamais `KEYS`
+(qui bloque le serveur Redis : ces balayages partent de la console opérateur, et un geste
+d'exploitation ne doit pas pouvoir figer la plateforme). Dédoublonne, le curseur pouvant
+rendre deux fois la même clé. Module **distinct de `redis.js`** à dessein : `redis.js` est
+ce que les tests remplacent dans `require.cache`, donc une primitive posée dedans serait à
+réécrire dans le harnais et la suite exercerait une imitation.
+
 ### `domain/sessions.js` — identité de session volatile
 Clé `sess:<id>` (hash Redis), TTL `sessionSec` (90 s), aucune PII (pseudo + âge +
 genre + ville **déclarés**, plus la clé publique E2E `pub` relayée mais opaque).
@@ -209,6 +217,7 @@ genre + ville **déclarés**, plus la clé publique E2E `pub` relayée mais opaq
 - `toPublic(s)` → profil exposable : **aucune coordonnée précise, aucune IP** (id, pseudo, age, gender, ville, `pub`).
 - `publicProfiles(ids)` → nettoie les « fantômes » (sessions expirées encore dans l'index géo) via `geo.removePresence` — **purge paresseuse**.
 - `deleteSession(id)` → `del(sess:<id>)` + retrait de l'index géo.
+- `purgeAll()` → efface toutes les sessions et les dénombre (remise à zéro opérateur). Balaie les clés : **aucun index ne recense les sessions**, seules la connexion et l'index de présence les désignent.
 
 ### `domain/geo.js` — présence de proximité géospatiale
 Index GEO unique `presence` (un index GEO Redis est un *sorted set*). Les positions
@@ -244,6 +253,8 @@ Fonctions clés :
 - `createPersistentRoom({slug, name})` : `owner: 'system'`, `persistent: '1'`, clé déterministe `room:<slug>`, **aucun `expire`** — exception à RG-05/RG-06.
 - `verifyVerifier(id, verifier)` — vérifie la preuve d'accès d'un salon chiffré **à temps constant** (`crypto.timingSafeEqual` sur les SHA-256, pour égaliser les longueurs). Le serveur ne voit jamais le mot de passe/la clé.
 - `verifyPassword`, `verifyInvite`, `addMember`/`removeMember` (réarment les TTL sauf si permanent), `memberIds` (ordonné par ancienneté), `deleteRoom`, `listPublic` (purge l'index expiré ; supprime les salons vides sauf permanents ; expose `encrypted`+`salt` public **mais jamais `verifier`** ; tri par nombre de membres décroissant).
+- `listAll()` — **console opérateur uniquement**. Balaie les clés `room:*` au lieu de lire `rooms:pub` : c'est ce qui rend visibles les salons qu'aucun index ne désigne (privés sur invitation) et ceux que l'annuaire tait (région). **Lecture seule**, à la différence de `listPublic` : aucune purge RG-05 au passage, afficher un état ne doit pas le modifier.
+- `purgeAll()` — efface tous les salons, membres et index public, et les dénombre. Les permanents partent avec les autres ; leur relève appartient à l'appelant (`admin:reset` rejoue le seed).
 
 ### `room-actions.js` — cycle de vie partagé
 Actions communes au namespace utilisateur (`handlers/`) et à la console (`admin.js`),
@@ -251,6 +262,19 @@ pour appliquer **exactement les mêmes règles**. Chaque fonction reçoit `io`.
 - `pushLobby(io)` → émet `rooms:list` à la room `lobby`.
 - `broadcastMembers(io, roomId)` → émet `room:members { roomId, members, owner }`.
 - `handleLeave(io, roomId, leaverId)` : retire le membre ; salon **permanent** ⇒ ni suppression ni transfert ; sinon salon **vide** ⇒ `deleteRoom` (**RG-05**) ; sinon départ de l'**owner** ⇒ transfert au plus ancien restant (**RG-06**) + `room:system` ; puis `broadcastMembers` + `pushLobby`.
+
+### `domain/purge.js` — remise à zéro de l'état de conversation
+Compose l'effacement sans connaître **aucune** forme de clé : chaque domaine efface les
+siennes (`geo.clearPresence`, `sessions.purgeAll`, `rooms.purgeAll`, `invites.purgeAll`),
+ce module ordonne et dénombre. Un effaceur qui tiendrait sa propre liste de préfixes
+oublierait, en silence, le premier ajouté après lui. La présence est vidée **en premier** :
+c'est le seul index qui fasse se rencontrer deux sessions.
+
+Ce qu'il n'efface **jamais** : `mod:*` (un signalement reçu est une notification au sens de
+l'art. 16, il ne se purge qu'à l'unité ou par son TTL), le gel du sel et l'incident qui le
+porte (une préservation prospective ne dépend pas d'un geste d'exploitation), `rl:*` (vider
+les seaux ouvrirait une fenêtre de flood juste après) et `metrics:onion:*` (ce qui sert à
+régler la plateforme).
 
 ### `domain/permanent-rooms.js` — salons permanents (seed)
 Source de vérité **hybride** : JSON versionné (`config.permanentRoomsFile`) + Redis.
@@ -287,8 +311,10 @@ Namespace Socket.IO **séparé**, authentifié par jeton unique (`config.operato
 **inerte si non configuré**.
 - `tokensMatch(provided, expected)` — comparaison **temps constant** (`timingSafeEqual` sur SHA-256) ; secret vide ⇒ toujours faux.
 - `authMiddleware` — vérifie `socket.handshake.auth.token`, rejette avec `Error('unauthorized')`.
-- À la connexion : join `operators`, émet `admin:snapshot { reports }`.
-- Actions : `admin:retract`, `admin:kick`, `admin:close`, `admin:ban`, `admin:freeze`/`admin:unfreeze` (+ incident), `admin:resolve`, et la gestion des salons permanents (`admin:room:create`/`rename`/`remove`). L'opérateur ne voit que du **contenu signalé + pseudo + horodatage** — **jamais d'IP**.
+- À la connexion : join `operators`, émet `admin:snapshot { reports }`, `admin:metrics` et `admin:rooms`.
+- Actions : `admin:retract`, `admin:kick`, `admin:close`, `admin:ban`, `admin:freeze`/`admin:unfreeze` (+ incident), `admin:resolve`, la gestion des salons permanents (`admin:room:create`/`rename`/`remove`) et la remise à zéro (`admin:reset`). L'opérateur ne voit que du **contenu signalé + pseudo + horodatage** — **jamais d'IP**.
+- **Salons** : `admin:rooms` est diffusé au même tick que les métriques mais **séparément**, parce qu'il nomme des salons — ce que `metrics.js` s'interdit. Il s'appuie sur `rooms.listAll()`, qui balaie les clés au lieu de lire un index : les privés sur invitation ne sont dans aucun index, et les salons de région sont hors annuaire. La liste donne un **nombre** de présents ; les pseudos et identifiants de session ne s'obtiennent que salon par salon (`admin:room:members`), sur le seul salon que l'opérateur déplie.
+- **Remise à zéro** (`admin:reset`) : trois gestes dans cet ordre — `purge.purgeChatState()`, puis `seedAtBoot()` pour relever les permanents (un permanent n'est recréé qu'au boot ; un salon de région renaît, lui, au premier arrivant), puis `io.disconnectSockets(true)` **en dernier**, sur le namespace public seulement. Sans cette coupure, chaque client resterait un fantôme (`sessions.touch` échoue en silence sur un hash disparu) ; posée en dernier, elle évite qu'une session recréée par une réidentification immédiate soit emportée par l'effacement. Refusée tant que `security.isSaltFrozen()` (préservation en cours), et conditionnée à la phrase `RESET_PHRASE`, revérifiée côté serveur.
 
 ### `handlers/` — namespace Socket.IO public (cœur métier)
 Une **famille d'événements par fichier**. `handlers/index.js` ne porte aucune règle
@@ -414,6 +440,11 @@ privé sur invitation n'y est que **haché** (SHA-256 sel+mot de passe).
 |-----------|------|-------|
 | `admin:snapshot` | serveur → opérateur | Backlog des signalements à la connexion |
 | `report:new` | serveur → opérateur | Nouveau signalement temps réel |
+| `admin:metrics` | serveur → opérateur | Métriques agrégées (compteurs seuls, aucun nom) |
+| `admin:rooms` | serveur → opérateur | **Tous** les salons vivants (`rooms.listAll`), nombre de présents seul |
+| `admin:rooms:refresh` | opérateur → serveur | Même liste, à la demande |
+| `admin:room:members` | opérateur → serveur | Composition d'**un** salon (pseudos + ids, pour `admin:kick`) |
+| `admin:reset` | opérateur → serveur | Remise à zéro de l'état de conversation (globale) |
 | `admin:retract` | opérateur → serveur | `room:retract` (retrait d'un message) |
 | `admin:kick` | opérateur → serveur | Exclut un membre (`handleLeave`, RG-05/06) |
 | `admin:close` | opérateur → serveur | Ferme un salon + `pushLobby` |
@@ -731,7 +762,7 @@ npm run test:watch  # mode watch
 ```
 
 ### Pattern d'injection
-- [`test/helpers/fake-redis.js`](./test/helpers/fake-redis.js) — `FakeRedis` en mémoire : strings, hash, zset, set, GEO (`geoSearch` FROMMEMBER+BYRADIUS via Haversine). `__reset()` entre les tests. Limites assumées : `expire` est un no-op ; l'index GEO partage la clé d'un zset.
+- [`test/helpers/fake-redis.js`](./test/helpers/fake-redis.js) — `FakeRedis` en mémoire : strings, hash (`hSetNX`/`hIncrBy` atomiques), zset, set, GEO (`geoSearch` FROMMEMBER+BYRADIUS via Haversine), `scan` (tout en un lot, curseur de retour 0 ; seul le joker `*` est interprété). `__reset()` entre les tests. Limites assumées : `expire` est un no-op ; l'index GEO partage la clé d'un zset.
 - [`test/helpers/inject-redis.js`](./test/helpers/inject-redis.js) — place le fake dans `require.cache` **à la place de `server/infra/redis.js`, avant** tout chargement de module serveur. Comme chaque module du domaine fait `require('../infra/redis')`, toute la chaîne reçoit le fake.
 
 Usage type (premier require du fichier de test) :
@@ -743,11 +774,12 @@ beforeEach(() => fake.__reset());
 Certains tests posent des variables d'env **avant** le require (ex. `admin.test.js`
 → `OPERATOR_SECRET`), car `config.js` lit l'environnement au chargement.
 
-### Couverture (11 fichiers)
+### Couverture (12 fichiers)
 
 | Fichier | Module | Points saillants |
 |---------|--------|------------------|
-| `admin.test.js` | `admin.js` | `tokensMatch` temps constant, `authMiddleware` (refus sans/mauvais jeton) |
+| `admin.test.js` | `admin.js` | `tokensMatch` temps constant, `authMiddleware`, **et la console de bout en bout** : les deux namespaces sont montés, `/admin` agit sur de vraies sessions et de vrais salons (liste des salons hors annuaire, dépliage des présents, fermeture, remise à zéro) |
+| `purge.test.js` | `domain/purge.js` | Décomptes exacts ; **assert : `mod:*`, `rl:*` et compteurs onion intacts** ; idempotent à vide |
 | `moderation.test.js` | `moderation.js` | **assert : aucune IP** (RG-08), report autosuffisant (RG-02), dédup, `unverified` toujours vrai, ban, incidents |
 | `rooms.test.js` | `rooms.js` | Cycle de vie, salons chiffrés/permanents |
 | `sessions.test.js` | `sessions.js` | Sessions volatiles, profils publics |

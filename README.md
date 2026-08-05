@@ -331,7 +331,8 @@ Un socle minimal de gouvernance, sans renoncer au *privacy by design* :
 
 - **Signalement** (DSA art. 16 *notice-and-action*) : sur un message de salon ou un MP. Sur un contenu chiffré, le clair est fourni **volontairement** par le signaleur et marqué `unverified` (le serveur reste aveugle).
 - **Aucun filtre automatique** : le serveur ne voit aucun contenu, il n'a rien à analyser. Tout signalement est donc marqué **non vérifié** — c'est une propriété du système, pas un défaut de réglage.
-- **Console opérateur** (`/operator`, namespace Socket.IO `/admin`) protégée par `OPERATOR_SECRET` : consultation des signalements, retrait de contenu, exclusion volatile.
+- **Console opérateur** (`/operator`, namespace Socket.IO `/admin`) protégée par `OPERATOR_SECRET` : consultation des signalements, retrait de contenu, exclusion volatile, et vue de **tous les salons vivants** (y compris ceux que l'annuaire public ne montre pas) avec fermeture. La liste donne un nombre de présents ; les pseudos ne s'affichent qu'au dépliage d'un salon.
+- **Remise à zéro** de l'état de conversation (sessions, présence, salons, invitations), globale et confirmée par saisie. Les signalements en attente et les incidents de réquisition y **survivent** : une notification reçue au sens de l'art. 16 ne s'efface pas par un geste d'exploitation.
 - **Préservation prospective bornée** : l'opérateur peut « geler » le sel IP (jamais rétroactivement), avec retour automatique au sel rotatif — exception explicite et plafonnée à RG-08.
 - **Pages juridiques** : point de contact et mentions légales servis via `/api/legal`.
 

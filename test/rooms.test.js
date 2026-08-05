@@ -348,3 +348,38 @@ test('isRegionRoomId : reconnaît les salons de région, rejette les autres', ()
   assert.equal(rooms.isRegionRoomId(''), false);
   assert.equal(rooms.isRegionRoomId(null), false);
 });
+
+test('listAll : voit les salons hors annuaire, et ne les modifie pas', async () => {
+  const { id: pub } = await rooms.createRoom({ name: 'Kiosque', type: 'public', password: '', ownerId: 'a' });
+  const { id: priv } = await rooms.createRoom({ name: 'Entre nous', type: 'private', password: 'porte', ownerId: 'b' });
+  const region = await rooms.ensureRegionRoom({ country: 'FR', code: '11', name: 'Île-de-France' });
+  // Salon vide et non permanent : `listPublic` le supprimerait (RG-05), `listAll` non.
+  const { id: vide } = await rooms.createRoom({ name: 'Désert', type: 'public', password: '', ownerId: 'c' });
+  await rooms.removeMember(vide, 'c');
+
+  const all = await rooms.listAll();
+  const byId = new Map(all.map((r) => [r.id, r]));
+
+  assert.ok(byId.has(pub));
+  assert.ok(byId.has(priv), 'un privé sur invitation est absent de rooms:pub mais visible ici');
+  assert.equal(byId.get(priv).hasPassword, true);
+  assert.equal(byId.get(region).region, true);
+  assert.equal(byId.get(region).persistent, true);
+  assert.equal(byId.get(vide).count, 0);
+  assert.ok(await rooms.getRoom(vide), 'listAll est en lecture seule : aucune purge RG-05');
+  // Les clés de membres partagent le préfixe `room:` sans être des salons.
+  assert.equal(all.filter((r) => r.id.includes(':')).length, 0);
+});
+
+test('purgeAll : efface salons, membres et index public, et les dénombre', async () => {
+  const { id: a } = await rooms.createRoom({ name: 'Un', type: 'public', password: '', ownerId: 'x' });
+  await rooms.createRoom({ name: 'Deux', type: 'private', password: '', ownerId: 'y' });
+  await rooms.createPersistentRoom({ slug: 'general', name: 'Général' });
+
+  assert.equal(await rooms.purgeAll(), 3, 'les permanents partent avec les autres');
+  assert.equal(await rooms.getRoom(a), null);
+  assert.equal(await rooms.getRoom('general'), null);
+  assert.equal(await rooms.memberCount(a), 0);
+  assert.deepEqual(await rooms.listPublic(), []);
+  assert.deepEqual(await rooms.listAll(), []);
+});

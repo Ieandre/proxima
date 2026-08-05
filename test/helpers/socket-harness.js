@@ -11,8 +11,10 @@
  *  - `io.to(x)` / `io.in(x)` / `socket.to(x)` diffusent aux sockets présents dans
  *    la « room » `x` (au sens Socket.IO : `user:<id>`, `room:<id>`, `lobby`…) ;
  *  - `socket.to(x)` exclut l'émetteur (comme le vrai Socket.IO) ;
- *  - `io.of('/admin').to('operators').emit(...)` est capturé dans `io.adminEmits` ;
+ *  - `io.of('/admin')` est un namespace PILOTABLE (middlewares + `connection`), et ses
+ *    émissions restent capturées dans `io.adminEmits` ;
  *  - `io.in(x).socketsLeave(y)` retire de la room `y` tous les sockets de `x` ;
+ *  - `io.disconnectSockets()` coupe le namespace principal, et lui seul ;
  *  - chaque socket possède une « inbox » : la liste ordonnée des { event, payload }
  *    qu'il a reçus (via son propre `emit` ou une diffusion de room).
  *
@@ -78,7 +80,11 @@ class FakeSocket {
     this.data = {};
     this.handlers = new Map();
     this.inbox = [];
+    this.disconnected = false;
     this.handshake = {
+      // Charge utile du handshake client : le jeton de la console opérateur y voyage
+      // (cf. `admin.authMiddleware`).
+      auth: opts.auth || {},
       headers: {
         ...(opts.forwardedFor ? { 'x-forwarded-for': opts.forwardedFor } : {}),
         // Marqueur du bloc Caddy onion (design 2026-07-29). `onion: true` simule
@@ -112,6 +118,19 @@ class FakeSocket {
   /** socket.to(x) : diffusion à la room x en EXCLUANT l'émetteur. */
   to(name) {
     return { emit: (event, payload) => this._hub.emitToRoom(name, event, payload, this) };
+  }
+
+  /**
+   * Coupe la connexion : sortie de toutes les rooms, puis déclenchement du handler
+   * `disconnect`. Le vrai Socket.IO ne l'attend pas et nous non plus — mais on avale son
+   * rejet : un test n'a pas à échouer sur le ménage d'une session déjà effacée.
+   */
+  __disconnect() {
+    this.disconnected = true;
+    for (const members of this._hub.rooms.values()) members.delete(this);
+    this._hub.sockets.delete(this);
+    const handler = this.handlers.get('disconnect');
+    if (handler) Promise.resolve().then(() => handler()).catch(() => {});
   }
 
   // ---- Aides de test -----------------------------------------------------
@@ -162,12 +181,64 @@ class FakeSocket {
 }
 
 /**
+ * Namespace secondaire (`/admin`) — pilotable, et pas seulement observable : il tient ses
+ * propres rooms et sa propre file de middlewares, ce qui permet d'exercer
+ * l'authentification par jeton PUIS les handlers opérateur sans réseau. Ses émissions
+ * continuent d'atterrir dans `io.adminEmits`, dont dépendent les tests qui vérifient
+ * qu'un signalement part vers la console sans y connecter d'opérateur.
+ */
+class FakeNamespace {
+  constructor(mainHub, name) {
+    this.name = name;
+    this.hub = new Hub();
+    this.mainHub = mainHub;
+    this.middlewares = [];
+    this.onConnection = null;
+  }
+
+  use(fn) {
+    this.middlewares.push(fn);
+    return this;
+  }
+
+  on(event, cb) {
+    if (event === 'connection') this.onConnection = cb;
+    return this;
+  }
+
+  to(room) {
+    return {
+      emit: (event, payload) => {
+        this.mainHub.adminEmits.push({ ns: this.name, room, event, payload });
+        this.hub.emitToRoom(room, event, payload, null);
+      },
+    };
+  }
+
+  /**
+   * Connecte un client sur ce namespace : middlewares d'abord — une erreur passée à
+   * `next` fait REJETER, comme un `connect_error` côté client — puis `connection`.
+   */
+  async connect(opts = {}) {
+    const socket = new FakeSocket(this.hub, opts);
+    for (const mw of this.middlewares) {
+      const err = await new Promise((resolve) => mw(socket, resolve));
+      if (err) throw err;
+    }
+    this.hub.sockets.add(socket);
+    if (this.onConnection) await this.onConnection(socket);
+    return socket;
+  }
+}
+
+/**
  * Crée un harness : renvoie `{ io, connect, hub }`.
  * `connect(opts)` crée un socket, exécute le callback `connection` (qui enregistre
  * tous les handlers) et renvoie le socket prêt à être piloté.
  */
 function createHarness() {
   const hub = new Hub();
+  const namespaces = new Map();
   let onConnection = null;
 
   const io = {
@@ -176,11 +247,20 @@ function createHarness() {
     },
     to: (name) => roomEmitter(hub, name),
     in: (name) => roomEmitter(hub, name),
-    of: (ns) => ({
-      to: (room) => ({
-        emit: (event, payload) => hub.adminEmits.push({ ns, room, event, payload }),
-      }),
-    }),
+    // Un seul objet par namespace : `admin.js` l'obtient à l'enregistrement et
+    // `handlers/index.js` à chaque signalement — ils doivent désigner le même.
+    of: (name) => {
+      if (!namespaces.has(name)) namespaces.set(name, new FakeNamespace(hub, name));
+      return namespaces.get(name);
+    },
+    /**
+     * Coupe les sockets du namespace PRINCIPAL, comme le vrai `io.disconnectSockets()`.
+     * Les namespaces secondaires ne sont pas touchés : c'est ce qui permet à la remise à
+     * zéro de ne pas déconnecter l'opérateur qui la déclenche.
+     */
+    disconnectSockets: () => {
+      for (const sock of [...hub.sockets]) sock.__disconnect();
+    },
     // Exposés pour les assertions.
     adminEmits: hub.adminEmits,
     hub,

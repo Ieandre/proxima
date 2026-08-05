@@ -1,6 +1,7 @@
 'use strict';
 
 const { client } = require('../infra/redis');
+const { scanKeys } = require('../infra/scan');
 const geo = require('./geo');
 const config = require('../config');
 
@@ -9,7 +10,8 @@ const config = require('../config');
  * Stockée dans un hash Redis `sess:<id>` à TTL court, rafraîchi par heartbeat.
  * Aucune PII : pseudo + âge + ville déclarés uniquement (§2.1).
  */
-const key = (id) => `sess:${id}`;
+const PREFIX = 'sess:';
+const key = (id) => `${PREFIX}${id}`;
 
 async function createSession(id, data) {
   const k = key(id);
@@ -108,6 +110,19 @@ async function deleteSession(id) {
   await geo.removePresence(id);
 }
 
+/**
+ * Efface TOUTES les sessions et renvoie leur nombre. Aucun index ne les recense —
+ * une session n'est référencée que par la connexion qui la porte et par l'index de
+ * présence — d'où le balayage des clés. L'index de présence n'est pas touché ici :
+ * il a son propre effacement (`geo.clearPresence`), et c'est `domain/purge.js` qui
+ * ordonne les deux.
+ */
+async function purgeAll() {
+  const keys = await scanKeys(`${PREFIX}*`);
+  if (keys.length) await client.del(keys);
+  return keys.length;
+}
+
 module.exports = {
   createSession,
   touch,
@@ -116,5 +131,6 @@ module.exports = {
   getPublicProfile,
   publicProfiles,
   deleteSession,
+  purgeAll,
   toPublic,
 };

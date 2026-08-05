@@ -5,10 +5,11 @@ const config = require('./config');
 const { clamp, ack } = require('./protocol');
 const moderation = require('./domain/moderation');
 const metrics = require('./metrics');
+const purge = require('./domain/purge');
 const rooms = require('./domain/rooms');
 const roomActions = require('./room-actions');
 const security = require('./security');
-const { SLUG_RE } = require('./domain/permanent-rooms');
+const { SLUG_RE, seedAtBoot } = require('./domain/permanent-rooms');
 
 /**
  * Console opérateur. Namespace Socket.IO SÉPARÉ `/admin`,
@@ -19,6 +20,12 @@ const { SLUG_RE } = require('./domain/permanent-rooms');
  * L'opérateur ne voit que des données déjà non sensibles (contenu signalé +
  * pseudo + horodatage, JAMAIS d'IP — cf. moderation.js).
  */
+
+/**
+ * Phrase de confirmation de la remise à zéro. Un mot à taper plutôt qu'un second clic :
+ * le geste est irréversible et global, il doit coûter une intention explicite.
+ */
+const RESET_PHRASE = 'REINITIALISER';
 
 /**
  * Comparaison à TEMPS CONSTANT de deux secrets. Le hachage SHA-256 préalable
@@ -59,8 +66,30 @@ function registerAdminNamespace(io) {
       console.error('[admin:metrics]', err.message);
     }
   }
-  const metricsTimer = setInterval(broadcastMetrics, config.metrics.refreshMs);
-  if (typeof metricsTimer.unref === 'function') metricsTimer.unref();
+
+  /**
+   * Liste des salons — même cadence et même garde que les métriques : un salon naît et
+   * meurt en permanence, une liste qu'il faut rafraîchir à la main serait fausse la
+   * plupart du temps. Séparée des métriques parce qu'elle nomme des salons, ce que
+   * `metrics.js` s'interdit (compteurs uniquement) ; les deux vont sur le même tick pour
+   * ne pas doubler les réveils.
+   */
+  async function broadcastRooms() {
+    if (operatorCount === 0) return;
+    try {
+      admin.to('operators').emit('admin:rooms', { rooms: await rooms.listAll() });
+    } catch (err) {
+      console.error('[admin:rooms]', err.message);
+    }
+  }
+
+  async function broadcastDashboard() {
+    await broadcastMetrics();
+    await broadcastRooms();
+  }
+
+  const dashboardTimer = setInterval(broadcastDashboard, config.metrics.refreshMs);
+  if (typeof dashboardTimer.unref === 'function') dashboardTimer.unref();
 
   admin.on('connection', async (socket) => {
     socket.join('operators');
@@ -78,6 +107,11 @@ function registerAdminNamespace(io) {
       socket.emit('admin:metrics', await metrics.snapshot());
     } catch (err) {
       console.error('[admin:metrics]', err.message);
+    }
+    try {
+      socket.emit('admin:rooms', { rooms: await rooms.listAll() });
+    } catch (err) {
+      console.error('[admin:rooms]', err.message);
     }
 
     // Retrait ciblé d'un message de salon public (best-effort chez les clients connectés).
@@ -98,6 +132,7 @@ function registerAdminNamespace(io) {
       io.in(`user:${t}`).socketsLeave(`room:${r}`);
       await roomActions.handleLeave(io, r, t);
       ack(cb, { ok: true });
+      await broadcastRooms();
     });
 
     // Fermeture d'un salon (miroir du room:close propriétaire).
@@ -109,6 +144,33 @@ function registerAdminNamespace(io) {
       await rooms.deleteRoom(r);
       await roomActions.pushLobby(io);
       ack(cb, { ok: true });
+      await broadcastRooms();
+    });
+
+    // Rafraîchissement à la demande (le tick s'en charge, ce bouton sert à ne pas
+    // attendre quand on vient d'agir).
+    socket.on('admin:rooms:refresh', async (_payload, cb) => {
+      ack(cb, { ok: true, rooms: await rooms.listAll() });
+    });
+
+    /**
+     * Composition d'UN salon. Volontairement absente de `admin:rooms` : la liste dit
+     * COMBIEN, le dépliage dit QUI. Afficher en permanence les présents de tous les
+     * salons ferait de la console un poste d'observation ; les pseudos et les
+     * identifiants de session ne sont exposés que sur le salon que l'opérateur ouvre —
+     * et c'est de toute façon ce qu'exige `admin:kick`, qui a besoin d'un identifiant.
+     */
+    socket.on('admin:room:members', async ({ roomId } = {}, cb) => {
+      const r = clamp(roomId, 32);
+      if (!r) return ack(cb, { error: 'Paramètres manquants.' });
+      const room = await rooms.getRoom(r);
+      if (!room) return ack(cb, { error: 'Salon introuvable.' });
+      ack(cb, {
+        ok: true,
+        roomId: r,
+        owner: await rooms.ownerOf(r),
+        members: await rooms.memberProfiles(r),
+      });
     });
 
     // Exclusion volatile best-effort : on déconnecte la session — son propre handler
@@ -157,6 +219,7 @@ function registerAdminNamespace(io) {
       await rooms.createPersistentRoom({ slug: s, name: n });
       ack(cb, { ok: true, slug: s });
       await roomActions.pushLobby(io);
+      await broadcastRooms();
     });
 
     // Renommage d'un salon permanent.
@@ -170,6 +233,7 @@ function registerAdminNamespace(io) {
       io.to(`room:${s}`).emit('room:system', { roomId: s, text: 'Le salon a été renommé.' });
       ack(cb, { ok: true });
       await roomActions.pushLobby(io);
+      await broadcastRooms();
     });
 
     // Suppression d'un salon permanent (éjecte les membres connectés, miroir d'admin:close).
@@ -184,10 +248,57 @@ function registerAdminNamespace(io) {
       await rooms.deleteRoom(s);
       ack(cb, { ok: true });
       await roomActions.pushLobby(io);
+      await broadcastRooms();
+    });
+
+    // ====================================================================
+    // REMISE À ZÉRO — geste d'exploitation, global et irréversible
+    // ====================================================================
+
+    /**
+     * Efface l'état de conversation : sessions, présence, salons, invitations. Jamais
+     * `mod:*` (cf. `domain/purge.js`, qui dit ce qui survit et pourquoi). La portée est
+     * celle de Redis : GLOBALE, donc toutes les instances d'un coup.
+     *
+     * Trois gestes, et leur ORDRE est le fond du sujet :
+     *  1. effacer ;
+     *  2. relever les salons permanents en rejouant le seed — sans quoi les salons
+     *     officiels manqueraient jusqu'au prochain redémarrage, un permanent n'étant
+     *     recréé qu'au boot (les salons de région, eux, renaissent au premier arrivant) ;
+     *  3. couper le namespace PUBLIC, et lui seul : `io.disconnectSockets` ne touche pas
+     *     `/admin`, sans quoi l'opérateur se déconnecterait lui-même. En DERNIER, parce
+     *     qu'une déconnexion invite le client à se réidentifier aussitôt : une session
+     *     neuve créée pendant l'effacement serait emportée par lui. Et ce geste n'est pas
+     *     optionnel — sans lui chaque client resterait un fantôme, son heartbeat échouant
+     *     en silence sur un hash disparu (`sessions.touch`) sans que rien ne le lui dise.
+     *
+     * Refusée tant que le sel IP est gelé : une préservation prospective en cours ne doit
+     * pas cohabiter avec un effacement massif. La phrase de confirmation est revérifiée
+     * ici — le garde-fou de l'interface protège du geste distrait, pas d'un onglet resté
+     * ouvert sur une console d'hier.
+     */
+    socket.on('admin:reset', async ({ confirm } = {}, cb) => {
+      if (clamp(confirm, 32) !== RESET_PHRASE) {
+        return ack(cb, { error: `Confirmation attendue : tapez ${RESET_PHRASE}.` });
+      }
+      if (security.isSaltFrozen()) {
+        return ack(cb, { error: 'Préservation en cours (sel IP gelé) : dégelez avant de réinitialiser.' });
+      }
+      const counts = await purge.purgeChatState();
+      const seed = await seedAtBoot();
+      io.disconnectSockets(true);
+      // Trace d'exploitation : un geste opérateur, des décomptes, aucune donnée personnelle.
+      console.warn(
+        `[admin:reset] état de conversation effacé — ${counts.sessions} session(s), ` +
+          `${counts.rooms} salon(s), ${counts.invites} invitation(s) ; ` +
+          `${seed.created} salon(s) permanent(s) relevé(s).`,
+      );
+      ack(cb, { ok: true, ...counts, permanentRooms: seed.created });
+      await broadcastDashboard();
     });
   });
 
   return admin;
 }
 
-module.exports = { registerAdminNamespace, authMiddleware, tokensMatch };
+module.exports = { registerAdminNamespace, authMiddleware, tokensMatch, RESET_PHRASE };
