@@ -161,9 +161,18 @@ function register({ io, socket, sid, limited, pushLobby, broadcastMembers, handl
     if (!roomId || !toId || !env || typeof env !== 'object') return;
     if (!(await rooms.isMember(roomId, id))) return;
     if (!(await rooms.isMember(roomId, toId))) return;
+    // AUTORITÉ SERVEUR sur l'époque. Ne JAMAIS recopier `payload.epoch` : un membre
+    // pourrait alors annoncer une génération fantaisiste (p. ex. 2^53) et, comme la
+    // règle de convergence cliente est « la plus haute époque fait foi », rendre le
+    // salon définitivement illisible pour ses destinataires (aucune remise ultérieure,
+    // à l'époque réelle, ne rattraperait jamais celle-là). Le seul régime concerné est
+    // `group` ; la remise d'un porteur légitime porte toujours l'époque courante du
+    // salon, on la relit donc ici plutôt que de la croire.
+    const room = await rooms.getRoom(roomId);
+    if (!room || room.keyMode !== 'group') return;
     io.to(`user:${toId}`).emit('room:key:deliver', {
       roomId,
-      epoch: Number(payload.epoch) || 0,
+      epoch: room.keyEpoch,
       fromId: id,
       env,
     });

@@ -38,6 +38,31 @@ test('createRoom public : métadonnées, propriétaire membre, indexé public', 
   assert.ok(publics.find((r) => r.id === id), 'le salon public doit apparaître dans le listing');
 });
 
+/**
+ * Charte d'identifiant (protocol.isValidId). Un `roomId` contenant `:` ferait viser la
+ * clé zset `room:<id>:members` avec une commande de hash (`WRONGTYPE` côté Redis réel,
+ * rejet non géré, arrêt du processus). Les points d'entrée d'identifiant non fiable
+ * doivent donc refuser AVANT de toucher Redis, en rendant leur valeur « rien ».
+ */
+test('identifiant hors charte (contenant « : ») : refus silencieux, jamais de commande Redis typée', async () => {
+  // Un vrai salon de région existe, sa clé de membres est bien un zset.
+  await makeSession('u1', 'U1');
+  const slug = await rooms.ensureRegionRoom({ country: 'FR', code: '11', name: 'Île-de-France' });
+  await rooms.addMember(slug, 'u1');
+
+  const poison = `${slug}:members`; // viserait le zset des membres via une op de hash
+  assert.equal(await rooms.getRoom(poison), null);
+  assert.equal(await rooms.ownerOf(poison), null);
+  assert.equal(await rooms.isMember(poison, 'u1'), false);
+  assert.equal(await rooms.memberCount(poison), 0);
+  assert.equal(await rooms.verifyPassword(poison, ''), false);
+  assert.equal(await rooms.verifyInvite(poison, 'x'), false);
+  assert.equal(await rooms.verifyVerifier(poison, 'x'), false);
+
+  // Le salon légitime, lui, reste parfaitement lisible.
+  assert.ok(await rooms.getRoom(slug));
+});
+
 test('createRoom private avec mot de passe : pas indexé public, vérif mdp', async () => {
   const { id } = await rooms.createRoom({
     name: 'Privé',

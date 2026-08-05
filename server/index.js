@@ -122,6 +122,21 @@ function notFound(_req, res) {
 }
 
 async function main() {
+  /**
+   * Filet de dernier recours (défense en profondeur). Les handlers Socket.IO sont
+   * `async` : une promesse rejetée par un listener (erreur Redis transitoire, cas non
+   * prévu) remonte en `unhandledRejection`, que Node ≥ 15 transforme en arrêt du
+   * processus par défaut. Sur un chat éphémère, une erreur ponctuelle ne doit JAMAIS
+   * couper toutes les sessions vivantes : on journalise et on continue. La validation
+   * d'entrée (`protocol.isValidId`) reste la vraie barrière ; ceci n'est que le filet.
+   */
+  process.on('unhandledRejection', (err) => {
+    console.error('[unhandledRejection]', err && err.message ? err.message : err);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err && err.message ? err.message : err);
+  });
+
   await connectRedis();
   console.log('[redis] connecté');
 

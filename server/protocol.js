@@ -34,4 +34,16 @@ const ack = (cb, payload) => {
  */
 const genId = (bytes = 9) => crypto.randomBytes(bytes).toString('base64url');
 
-module.exports = { clamp, ack, genId };
+/**
+ * Charte d'un identifiant venu du client (salon, session, message). Le jeu de
+ * caractères est EXACTEMENT celui que produisent `genId` (base64url) et les slugs
+ * de salon permanent/région (`rgn-fr-11`, minuscules + tirets). Le point crucial
+ * est le refus du `:` : sans lui, un `roomId` comme `<salon>:members` fait viser la
+ * clé `room:<salon>:members` (un zset) avec une commande de hash — Redis répond
+ * `WRONGTYPE`, le rejet de promesse non géré remonte, et le processus s'arrête.
+ * Tronquer ne suffit donc pas ; il faut restreindre le jeu de caractères.
+ */
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const isValidId = (s) => typeof s === 'string' && ID_RE.test(s);
+
+module.exports = { clamp, ack, genId, isValidId };

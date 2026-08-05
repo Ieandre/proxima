@@ -187,7 +187,12 @@ export const useStore = create<State>((set, get) => ({
    */
   setGroupKey: (roomId, key, epoch) =>
     set((s) => {
-      if ((s.roomKeyEpochs[roomId] || 0) > epoch) return {};
+      // Une clé DÉJÀ en place ne se remplace que par une génération STRICTEMENT plus
+      // récente. Une remise à époque égale (ou antérieure) est soit la réponse tardive
+      // d'un autre porteur — la même clé, sans intérêt —, soit la tentative d'un membre
+      // d'imposer SA clé pour détourner le fil d'un participant : on l'écarte dans les
+      // deux cas. La toute première clé (aucune encore en RAM) est en revanche acceptée.
+      if (s.roomKeys[roomId] && epoch <= (s.roomKeyEpochs[roomId] || 0)) return {};
       return {
         roomKeys: { ...s.roomKeys, [roomId]: key },
         roomKeyEpochs: { ...s.roomKeyEpochs, [roomId]: epoch },

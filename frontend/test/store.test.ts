@@ -106,11 +106,17 @@ describe('salons & clés (RG-01/02 : purge RAM)', () => {
     expect(s().roomKeyEpochs.r1).toBe(3);
   });
 
-  it('setGroupKey accepte la MÊME génération : deux porteurs servent la même clé', () => {
-    s().setGroupKey('r1', new Uint8Array([1]), 5);
-    const autre = new Uint8Array([2]);
-    s().setGroupKey('r1', autre, 5);
-    expect(s().roomKeys.r1).toBe(autre);
+  it('setGroupKey n\'écrase PAS une clé en place par une remise à génération ÉGALE (anti-détournement)', () => {
+    // Deux porteurs légitimes servent LA MÊME clé à la même génération : conserver la
+    // première ou la seconde revient au même. Mais accepter une remise à époque égale,
+    // c'est aussi laisser un membre imposer SA clé pour détourner le fil d'un
+    // participant — donc, dès qu'une clé est là, une remise de même génération est
+    // écartée. La toute première remise (aucune clé encore) reste évidemment acceptée.
+    const premiere = new Uint8Array([1]);
+    s().setGroupKey('r1', premiere, 5);
+    s().setGroupKey('r1', new Uint8Array([2]), 5);
+    expect(s().roomKeys.r1).toBe(premiere);
+    expect(s().roomKeyEpochs.r1).toBe(5);
   });
 
   it('setRoomMembers no-op si le salon n\'est pas rejoint', () => {

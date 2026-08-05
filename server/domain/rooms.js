@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { client } = require('../infra/redis');
 const { scanKeys } = require('../infra/scan');
-const { genId } = require('../protocol');
+const { genId, isValidId } = require('../protocol');
 const sessions = require('./sessions');
 const config = require('../config');
 
@@ -199,6 +199,10 @@ async function setName(id, name) {
 }
 
 async function getRoom(id) {
+  // Identifiant hors charte (un `:`, typiquement) : refus AVANT de toucher Redis,
+  // sans quoi un `hGetAll` viserait la clé zset `room:<id>:members` (WRONGTYPE →
+  // rejet non géré → arrêt du processus). Cf. `protocol.isValidId`.
+  if (!isValidId(id)) return null;
   const h = await client.hGetAll(roomKey(id));
   if (!h || !h.name) return null;
   /**
@@ -261,16 +265,19 @@ async function removeMember(id, sessionId) {
 }
 
 async function isMember(id, sessionId) {
+  if (!isValidId(id)) return false;
   const score = await client.zScore(membersKey(id), sessionId);
   return score !== null && score !== undefined;
 }
 
 /** Membres ordonnés par ancienneté (le plus ancien d'abord) — base du transfert RG-06. */
 async function memberIds(id) {
+  if (!isValidId(id)) return [];
   return client.zRange(membersKey(id), 0, -1);
 }
 
 async function memberCount(id) {
+  if (!isValidId(id)) return 0;
   return client.zCard(membersKey(id));
 }
 
@@ -290,6 +297,9 @@ async function memberProfiles(id) {
 }
 
 async function ownerOf(id) {
+  // Guard identique à `getRoom` : `room:kick`/`room:close` appellent `ownerOf` AVANT
+  // tout contrôle de propriété, c'est donc un point d'entrée d'identifiant non fiable.
+  if (!isValidId(id)) return null;
   return client.hGet(roomKey(id), 'owner');
 }
 
@@ -303,6 +313,7 @@ async function setPassword(id, password) {
 }
 
 async function verifyPassword(id, password) {
+  if (!isValidId(id)) return false;
   const h = await client.hmGet(roomKey(id), ['salt', 'pass']);
   const [salt, pass] = h;
   if (!pass) return true; // pas de mot de passe défini
@@ -310,6 +321,7 @@ async function verifyPassword(id, password) {
 }
 
 async function verifyInvite(id, token) {
+  if (!isValidId(id)) return false;
   const invite = await client.hGet(roomKey(id), 'invite');
   if (!token || !invite) return false;
   // Comparaison à TEMPS CONSTANT (SHA-256 préalable pour égaliser les longueurs,
@@ -325,6 +337,7 @@ async function verifyInvite(id, token) {
  * Ne s'applique qu'aux salons chiffrés ; le serveur ne voit jamais le mot de passe.
  */
 async function verifyVerifier(id, verifier) {
+  if (!isValidId(id)) return false;
   const [enc, expected] = await client.hmGet(roomKey(id), ['encrypted', 'verifier']);
   if (enc !== '1' || !expected) return false;
   const a = crypto.createHash('sha256').update(String(verifier == null ? '' : verifier)).digest();
