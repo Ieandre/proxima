@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { parseMarkdown, type Block, type Inline } from '../../lib/markdown';
 import { splitMentions } from '../../lib/mentions';
 import { REPORT_REASON_LABEL, type MediaAttachment, type Message, type ReportReason } from '../../lib/types';
@@ -34,10 +34,54 @@ export function MessageList({
   const [reportTarget, setReportTarget] = useState<Message | null>(null);
   // Message mis en évidence après un saut vers une citation ; s'éteint tout seul.
   const [flash, setFlash] = useState<string | null>(null);
-  useEffect(() => {
+  // « Accroché » au bas du fil : tant qu'on y est, on suit la conversation. Dès
+  // qu'on remonte lire, la position devient intouchable — un nouveau message ne
+  // doit jamais arracher le lecteur à l'historique ; il alimente la pastille.
+  const pinnedRef = useRef(true);
+  const prevCountRef = useRef(0);
+  const [missed, setMissed] = useState(0);
+
+  function onScroll() {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+    if (!el) return;
+    // Tolérance d'une bulle (~120 px) : « en bas » ne doit pas se perdre au
+    // moindre pixel de dérive (clavier mobile, média qui finit de charger).
+    const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    pinnedRef.current = pinned;
+    if (pinned) setMissed(0);
+  }
+
+  function jumpToLatest() {
+    const el = ref.current;
+    if (!el) return;
+    pinnedRef.current = true;
+    setMissed(0);
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
+
+  // `useLayoutEffect` : la mesure et le recalage se font avant le rendu à
+  // l'écran — accroché, on ne voit jamais le fil « sauter » vers le bas.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const added = messages.length - prevCountRef.current;
+    prevCountRef.current = messages.length;
+    // Ses propres mots ramènent toujours en bas : on veut voir sa bulle partir.
+    const justSpoke = added > 0 && messages[messages.length - 1]?.kind === 'me';
+    if (pinnedRef.current || justSpoke) {
+      el.scrollTop = el.scrollHeight;
+      pinnedRef.current = true;
+      setMissed(0);
+    } else if (added > 0) {
+      // Seuls les messages d'autrui comptent : un avis système (arrivée,
+      // départ) n'est pas une conversation manquée.
+      const chat = messages.slice(-added).filter((m) => m.kind === 'them').length;
+      if (chat > 0) setMissed((n) => n + chat);
+    } else if (added < 0) {
+      // Fil raccourci (purge, remise à zéro) : la pastille n'a plus de référent.
+      setMissed(0);
+    }
+  }, [messages]);
 
   const byId = useMemo(() => {
     const map = new Map<string, Message>();
@@ -59,8 +103,8 @@ export function MessageList({
   }
 
   return (
-    <>
-      <div ref={ref} className="scroll flex-1 overflow-y-auto px-3 py-4 sm:px-5">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div ref={ref} onScroll={onScroll} className="scroll flex-1 overflow-y-auto px-3 py-4 sm:px-5">
         {/* `justify-end` + `min-h-full` : la conversation pousse depuis le bas, contre le
             champ de saisie. Empilée par le haut, une pièce de deux messages laissait
             600 px de vide sous eux et donnait un salon à l'abandon. */}
@@ -168,6 +212,12 @@ export function MessageList({
         </div>
       </div>
 
+      {missed > 0 && (
+        <button type="button" className="jump-latest" onClick={jumpToLatest}>
+          ↓ {missed === 1 ? '1 nouveau message' : `${missed} nouveaux messages`}
+        </button>
+      )}
+
       {reportTarget && onReport && (
         <ReportModal
           onClose={() => setReportTarget(null)}
@@ -177,7 +227,7 @@ export function MessageList({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 

@@ -930,6 +930,43 @@ button.quote:hover {
   }
 }
 
+/* Pastille « nouveaux messages » : quand on est remonté lire l'historique et
+   que la conversation continue en bas, on ne force plus le retour — on l'offre. */
+.jump-latest {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.95rem;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(160deg, var(--color-blue-fill), var(--color-blue-deep));
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: var(--shadow-pop);
+  animation: jumpLatestIn 0.18s ease-out;
+}
+.jump-latest:hover {
+  background: var(--color-blue-deep);
+}
+@keyframes jumpLatestIn {
+  from {
+    opacity: 0;
+    translate: -50% 8px;
+  }
+  to {
+    opacity: 1;
+    translate: -50% 0;
+  }
+}
+
 /* Barre de réponse au-dessus du champ de saisie : rappelle ce que l'on cite et
    offre la sortie (croix ou Échap) au même endroit. */
 .reply-bar {
