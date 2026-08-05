@@ -74,7 +74,8 @@ export function RoomRow({
 
       {/* Ouvrir un salon où l'on est doit rester un clic sur la ligne : la sortie est
           donc une commande à part, discrète, révélée au survol (toujours visible au
-          doigt — un survol n'existe pas, et une action invisible non plus). */}
+          doigt — un survol n'existe pas, et une action invisible non plus). L'icône
+          dit le geste lui-même : une porte de sortie, pas un menu qui n'existe pas. */}
       <span className="room-row__aside">
         {joining ? (
           /* Toujours visible, contrairement au chevron : c'est le seul signe que le
@@ -84,12 +85,12 @@ export function RoomRow({
           </span>
         ) : room.here ? (
           <button
-            className="room-row__more"
+            className="room-row__leave"
             onClick={onLeave}
             aria-label={`Sortir de ${room.name}`}
             title="Sortir du salon"
           >
-            <Icon name="dots" size={16} />
+            <Icon name="logout" size={15} />
           </button>
         ) : (
           <span className="room-row__go" aria-hidden="true">

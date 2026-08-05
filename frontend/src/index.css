@@ -1751,29 +1751,32 @@ button.quote:hover {
   align-self: stretch;
 }
 .room-row__go,
-.room-row__more {
+.room-row__leave {
   display: grid;
   place-items: center;
   color: var(--color-faint);
   transition: color 0.14s, opacity 0.14s;
 }
-.room-row__more {
+.room-row__leave {
   padding: 0.25rem;
   border-radius: 8px;
   cursor: pointer;
 }
-.room-row:hover .room-row__go,
-.room-row__more:hover {
+.room-row:hover .room-row__go {
   color: var(--color-blue);
+}
+/* La sortie rougit au survol : la couleur dit le sens du geste avant le clic. */
+.room-row__leave:hover {
+  color: var(--color-danger);
 }
 @media (hover: hover) {
   .room-row__go,
-  .room-row__more {
+  .room-row__leave {
     opacity: 0;
   }
   .room-row:hover .room-row__go,
-  .room-row:hover .room-row__more,
-  .room-row__more:focus-visible {
+  .room-row:hover .room-row__leave,
+  .room-row__leave:focus-visible {
     opacity: 1;
   }
 }

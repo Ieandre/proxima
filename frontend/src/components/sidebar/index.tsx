@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { createInvite, joinRoom, refreshPresence } from '../../lib/socket';
+import { createInvite, joinRoom, leaveRoom, refreshPresence } from '../../lib/socket';
 import { fingerprint } from '../../lib/crypto';
 import { buildRoomList, communityStart, filterRooms, normalize, type RoomEntry } from '../../lib/rooms';
 import { splitPeople } from '../../lib/people';
@@ -91,6 +91,20 @@ export function Sidebar() {
     const res = await joinRoom({ roomId: r.id });
     setJoining(null);
     if (!res.ok) showToast(res.error || "L'entrée a échoué.", 'warn');
+  }
+
+  /**
+   * Clic sur la porte de sortie d'une ligne — même règle que l'entrée : la fiche ne
+   * s'ouvre que quand elle a quelque chose à dire AVANT d'agir. Sortir d'un salon où
+   * l'on n'a rien écrit ne prévient personne et se défait d'un clic sur la ligne : il
+   * n'y a rien à confirmer. Restent les trois sorties qui coûtent quelque chose :
+   * détruire le salon en le laissant vide (RG-05), annoncer son départ aux présents
+   * (on y a pris la parole), ou perdre l'accès faute de mot de passe ressaisi.
+   */
+  function exitRoom(r: RoomEntry) {
+    const spoke = (threads[`room:${r.id}`] || []).some((m) => m.kind === 'me');
+    if (r.alone || r.locked || (!r.region && spoke)) return setCard({ id: r.id, mode: 'leave' });
+    leaveRoom(r.id);
   }
 
   async function startInvite() {
@@ -346,7 +360,7 @@ export function Sidebar() {
                         unread={unread[`room:${r.id}`] || 0}
                         mention={!!mentioned[`room:${r.id}`]}
                         onEnter={() => enterRoom(r)}
-                        onLeave={() => setCard({ id: r.id, mode: 'leave' })}
+                        onLeave={() => exitRoom(r)}
                       />
                       {card?.id === r.id && (
                         <RoomCard
