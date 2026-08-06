@@ -55,10 +55,10 @@ const PAGES = [
     file: 'en-savoir-plus.html',
     title: 'Comment ça marche : anonymat et chiffrement — Proxima',
     description:
-      "Clés créées sur votre appareil, chiffrement de bout en bout des messages privés, rien de conservé : le fonctionnement de Proxima, expliqué et démontré en direct.",
+      "Clés créées sur votre appareil, chiffrement de bout en bout des messages privés et des salons, rien de conservé : le fonctionnement de Proxima, expliqué et démontré en direct.",
     heading: 'Comment fonctionne Proxima',
     intro:
-      "Proxima ne demande ni compte, ni email, ni numéro. À l'ouverture de la page, une paire de clés est fabriquée sur votre appareil et sa moitié privée n'en sort jamais : c'est ce qui permet de chiffrer les messages privés de bout en bout, sans que le serveur puisse les lire. Cette page détaille chaque mécanisme — identité éphémère, proximité sans géolocalisation, chiffrement des salons à mot de passe — et le démontre en direct dans votre navigateur.",
+      "Proxima ne demande ni compte, ni email, ni numéro. À l'ouverture de la page, une paire de clés est fabriquée sur votre appareil et sa moitié privée n'en sort jamais : c'est ce qui permet de chiffrer les messages privés de bout en bout, sans que le serveur puisse les lire. Cette page détaille chaque mécanisme — identité éphémère, proximité sans géolocalisation, chiffrement de tous les salons — et le démontre en direct dans votre navigateur.",
     nav: 'Comment ça marche',
   },
   {
@@ -88,10 +88,10 @@ const PAGES = [
     file: 'moderation.html',
     title: 'Politique de modération (DSA) — Proxima',
     description:
-      "Comment Proxima modère sans lire vos messages privés : signalement, retrait des contenus illégaux, voies de recours, et ce que le chiffrement de bout en bout implique.",
+      "Comment Proxima modère sans pouvoir lire vos échanges : signalement, retrait des contenus illégaux, voies de recours, et ce que le chiffrement de bout en bout implique.",
     heading: 'Politique de modération',
     intro:
-      "Anonyme ne veut pas dire ingouvernable. La modération de Proxima est réactive : elle n'inspecte pas les échanges mais agit sur signalement, dans les salons publics. Les messages privés et les salons à mot de passe étant chiffrés de bout en bout, ils restent illisibles pour nous — cette page dit ce que cela permet, ce que cela empêche, et par quelles voies contester une décision.",
+      "Anonyme ne veut pas dire ingouvernable. La modération de Proxima est réactive : elle n'inspecte pas les échanges mais agit sur signalement. Les messages privés comme les salons étant chiffrés de bout en bout, ils restent illisibles pour nous — cette page dit ce que cela permet, ce que cela empêche, et par quelles voies contester une décision.",
     nav: 'Modération',
   },
   {
