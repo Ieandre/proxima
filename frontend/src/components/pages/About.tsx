@@ -76,7 +76,7 @@ export function About() {
             l'onglet, <strong className="text-ink">il ne reste rien</strong>.
           </p>
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <Pillar icon="lock" title="Chiffré" text="MP et salons à mot de passe illisibles pour le serveur." />
+            <Pillar icon="lock" title="Chiffré" text="MP et salons, tous illisibles pour le serveur." />
             <Pillar icon="clock" title="Éphémère" text="Tout vit en mémoire, rien sur disque." />
             <Pillar icon="pin" title="Sans GPS" text="Seul le nom de votre ville est utilisé." />
           </div>
@@ -246,22 +246,25 @@ export function About() {
         {/* Salons */}
         <Section eyebrow="Salons" title="Discussions de groupe, publiques ou privées">
           <p>
-            Vous pouvez créer ou rejoindre des salons. Les <strong className="text-ink">publics</strong> sont visibles de
-            tous&nbsp;; les <strong className="text-ink">privés sur invitation</strong> s'ouvrent par lien&nbsp;; et les{' '}
-            <strong className="text-ink">privés à mot de passe</strong> sont{' '}
-            <strong className="text-ink">chiffrés de bout en bout</strong>. Le créateur en est propriétaire&nbsp;: il
+            Vous pouvez créer ou rejoindre des salons, tous{' '}
+            <strong className="text-ink">chiffrés de bout en bout</strong>. Les{' '}
+            <strong className="text-ink">publics</strong> sont visibles de tous&nbsp;; les{' '}
+            <strong className="text-ink">privés sur invitation</strong> s'ouvrent par lien&nbsp;; et les{' '}
+            <strong className="text-ink">privés à mot de passe</strong>, par mot de passe. Le créateur en est propriétaire&nbsp;: il
             peut exclure un participant ou fermer le salon. S'il part, la propriété passe au plus ancien présent&nbsp;; et
             un salon vide est <strong className="text-ink">supprimé aussitôt</strong>.
           </p>
           <RoomsSchema />
           <p className="mt-3 text-[13.5px] text-muted">
-            Trois régimes&nbsp;: un salon <strong className="text-ink">public</strong> ou{' '}
-            <strong className="text-ink">privé sur invitation</strong> est relayé <strong className="text-ink">en
-            clair</strong> (le serveur en voit le contenu et peut le modérer)&nbsp;; un salon{' '}
-            <strong className="text-ink">privé à mot de passe</strong> est <strong className="text-ink">chiffré</strong>
-            &nbsp;— le serveur ne voit qu'une enveloppe opaque, comme pour les MP. Nuance importante&nbsp;: dans un salon
-            chiffré, la confidentialité est «&nbsp;de groupe&nbsp;» (tout membre peut lire), <strong className="text-ink">
-            sans authentification de l'auteur</strong> d'un message.
+            Tous les salons sont <strong className="text-ink">chiffrés</strong>&nbsp;: le serveur ne voit qu'une
+            enveloppe opaque, comme pour les MP. Ce qui distingue les trois types, c'est la porte — donc la façon
+            d'obtenir la clé. Dans un salon <strong className="text-ink">public</strong> ou{' '}
+            <strong className="text-ink">sur invitation</strong>, quiconque entre la reçoit des membres déjà
+            présents&nbsp;; dans un salon <strong className="text-ink">à mot de passe</strong>, elle se dérive du mot de
+            passe, jamais transmis au serveur. Nuance importante&nbsp;: la confidentialité est «&nbsp;de
+            groupe&nbsp;» (tout membre peut lire), <strong className="text-ink">sans authentification de
+            l'auteur</strong> d'un message — le chiffrement met le contenu hors de portée de l'hébergeur, jamais des
+            participants.
           </p>
         </Section>
 
@@ -273,7 +276,7 @@ export function About() {
               title="Ne peut pas voir"
               items={[
                 'Le contenu de vos messages privés',
-                'Le contenu des salons à mot de passe (chiffrés)',
+                'Le contenu des salons (tous chiffrés)',
                 'Votre vraie identité (aucune PII)',
                 'Votre position GPS',
                 "La longueur de vos MP (rembourrage)",
@@ -286,8 +289,7 @@ export function About() {
               items={[
                 'Le pseudo, l’âge et la ville déclarés',
                 'Qui est en ligne, et à proximité de qui',
-                'Des blocs chiffrés pour les MP et salons à mot de passe (à relayer)',
-                'Le contenu des salons publics et sur invitation',
+                'Des blocs chiffrés pour les MP et les salons (à relayer)',
                 'Un hash salé éphémère de l’IP (anti-spam)',
               ]}
             />
@@ -345,10 +347,11 @@ export function About() {
           <p>
             Proxima est anonyme, mais pas <strong className="text-ink">ingouvernable</strong>. Chaque message peut être{' '}
             <strong className="text-ink">signalé</strong> à la modération depuis le service. La modération est
-            réactive&nbsp;: elle ne surveille pas vos échanges, mais agit sur signalement (retrait d'un message public,
-            exclusion d'un participant, fermeture de salon). Vos messages privés <strong className="text-ink">et les
-            salons à mot de passe</strong> restent <strong className="text-ink">illisibles</strong> pour nous&nbsp;: ils
-            ne sont signalés que via le texte que vous fournissez vous-même.
+            réactive&nbsp;: elle ne surveille pas vos échanges — tout étant chiffré, elle ne le pourrait pas — mais agit
+            sur signalement (retrait ciblé d'un message signalé, exclusion d'un participant, fermeture de salon). Vos
+            messages privés <strong className="text-ink">comme vos salons</strong> restent{' '}
+            <strong className="text-ink">illisibles</strong> pour nous&nbsp;: un contenu n'est signalé que via le texte
+            que le signaleur fournit lui-même.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <a href="/cgu" className="chip chip-blue cursor-pointer">
@@ -403,10 +406,10 @@ export function About() {
               haut) — mais il reste minoritaire, et cette limite vaut pour la plupart des visites.
             </Limit>
             <Limit>
-              Les salons <strong className="text-ink">publics</strong> et <strong className="text-ink">sur
-              invitation</strong> ne sont pas chiffrés&nbsp;; seuls les salons <strong className="text-ink">à mot de
-              passe</strong> le sont — et sans <strong className="text-ink">authentification de l'auteur</strong> d'un
-              message (un membre pourrait en usurper un autre).
+              Le chiffrement des salons est <strong className="text-ink">de groupe</strong>&nbsp;: il met le contenu
+              hors de portée de l'hébergeur, jamais des participants — quiconque franchit la porte obtient la clé. Et
+              il se fait sans <strong className="text-ink">authentification de l'auteur</strong> d'un message (un
+              membre pourrait en usurper un autre).
             </Limit>
           </ul>
         </Section>

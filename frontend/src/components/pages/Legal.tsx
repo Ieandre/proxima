@@ -95,8 +95,8 @@ function CGU() {
 
       <H2>1. Objet du service</H2>
       <P>
-        Le Service permet d'échanger en temps réel, en messages privés chiffrés de bout en bout ou dans des salons
-        thématiques, avec des personnes situées dans une même zone géographique déclarée. Aucune inscription n'est
+        Le Service permet d'échanger en temps réel, en messages privés ou dans des salons thématiques — les uns comme
+        les autres chiffrés de bout en bout —, avec des personnes situées dans une même zone géographique déclarée. Aucune inscription n'est
         requise&nbsp;; l'identité de session (pseudo, âge, ville) est volatile et détruite à la fermeture de l'onglet.
       </P>
 
@@ -124,7 +124,8 @@ function CGU() {
 
       <H2>4. Chiffrement et responsabilité du contenu</H2>
       <P>
-        Les messages privés sont chiffrés de bout en bout&nbsp;: l'éditeur ne peut pas en prendre connaissance. Vous
+        Les messages privés et les salons sont chiffrés de bout en bout&nbsp;: l'éditeur ne peut pas en prendre
+        connaissance. Vous
         demeurez seul·e responsable des contenus que vous publiez ou transmettez. L'éditeur agit en qualité
         d'hébergeur de contenus tiers et n'exerce aucune surveillance généralisée (DSA art.&nbsp;8).
       </P>
@@ -175,12 +176,8 @@ function Confidentialite({ contact }: { contact: string }) {
             vive, avec une durée de vie courte prolongée par l'activité, et détruite à la fermeture de l'onglet.
           </>,
           <>
-            <B>Contenu des messages privés</B>&nbsp;: chiffré de bout en bout&nbsp;; l'éditeur n'y a jamais accès et ne
-            le conserve pas.
-          </>,
-          <>
-            <B>Contenu des salons publics</B>&nbsp;: relayé en clair pour la diffusion en temps réel, sans
-            journalisation ni conservation après diffusion.
+            <B>Contenu des messages privés et des salons</B>&nbsp;: chiffré de bout en bout&nbsp;; l'éditeur ne relaie
+            que des enveloppes opaques, n'y a jamais accès et ne le conserve pas.
           </>,
           <>
             <B>Donnée technique anti-abus</B>&nbsp;: une empreinte salée et éphémère de l'adresse IP (sel rotatif, durée
@@ -253,24 +250,26 @@ function Moderation({ contact }: { contact: string }) {
         illégal, mineur en danger (traité en priorité), harcèlement, spam, ou autre.
       </P>
 
-      <H2>2. Salons publics</H2>
+      <H2>2. Salons</H2>
       <P>
-        Les messages des salons publics sont visibles du Service. Un filtre de mots-clés <B>non bloquant</B> peut
-        marquer certains messages pour revue humaine&nbsp;; il ne censure jamais automatiquement la diffusion.
+        Tous les salons sont chiffrés de bout en bout&nbsp;: le Service n'en voit passer que des enveloppes opaques et
+        n'exerce <B>aucun filtrage automatique</B> du contenu. La modération repose intégralement sur le
+        signalement&nbsp;— tout membre d'un salon peut lire ce qui s'y dit, et donc fournir le texte qu'il signale.
       </P>
 
-      <H2>3. Messages privés chiffrés</H2>
+      <H2>3. Contenus chiffrés et signalement</H2>
       <P>
-        Le Service <B>ne peut pas lire</B> les messages privés. Lorsqu'un message privé est signalé, c'est le texte
-        <B> déchiffré sur votre appareil</B> qui est transmis à la modération&nbsp;: son authenticité ne peut donc pas
-        être vérifiée côté serveur. La modération peut alors agir sur la session de l'auteur présumé, mais ne peut pas
-        «&nbsp;retirer&nbsp;» un message privé.
+        Le Service <B>ne peut lire</B> ni les messages privés ni les salons. Lorsqu'un message est signalé, c'est le
+        texte <B>déchiffré sur votre appareil</B> qui est transmis à la modération&nbsp;: son authenticité ne peut donc
+        pas être vérifiée côté serveur. La modération peut alors agir sur la session de l'auteur présumé et demander le
+        retrait d'un message de salon, ciblé par son identifiant&nbsp;; un message privé, lui, ne peut pas être
+        «&nbsp;retiré&nbsp;».
       </P>
 
       <H2>4. Mesures possibles</H2>
       <UL
         items={[
-          "Retrait d'un message d'un salon public (effacement best-effort chez les participants connectés) ;",
+          "Retrait d'un message de salon, ciblé par son identifiant (effacement best-effort chez les participants connectés) ;",
           "Exclusion d'un participant d'un salon ;",
           "Restriction d'accès best-effort — contournable, l'anonymat n'autorisant aucun identifiant durable ;",
           "Fermeture d'un salon.",

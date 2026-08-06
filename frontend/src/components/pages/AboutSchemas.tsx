@@ -473,11 +473,10 @@ export function RoomsSchema() {
       title="Salons publics et privés"
       legend={
         <>
-          Trois régimes&nbsp;: les salons <strong className="font-semibold text-ink">publics</strong> et{' '}
-          <strong className="font-semibold text-ink">sur invitation</strong> sont relayés{' '}
-          <strong className="font-semibold text-ink">en clair</strong>&nbsp;; un salon{' '}
-          <strong className="font-semibold text-ink">à mot de passe</strong> est{' '}
-          <strong className="font-semibold text-ink">chiffré de bout en bout</strong> (opaque pour le serveur, comme un&nbsp;MP).
+          Trois portes, un seul régime&nbsp;: tous les salons sont{' '}
+          <strong className="font-semibold text-ink">chiffrés de bout en bout</strong> — le serveur ne relaie que des
+          enveloppes opaques, comme pour les&nbsp;MP. Ce qui change d'un type à l'autre, c'est la{' '}
+          <strong className="font-semibold text-ink">porte</strong>, donc la façon d'obtenir la clé.
         </>
       }
     >
@@ -486,24 +485,24 @@ export function RoomsSchema() {
           tone="blue"
           icon="globe"
           title="Salon public"
-          tag="En clair"
-          meta="Listé pour tout le monde, rejoint librement. Modérable."
+          tag="Chiffré · clé de groupe"
+          meta="Listé pour tout le monde, rejoint librement. Quiconque entre reçoit la clé des membres."
           access={<><Icon name="users" size={13} /> Accès ouvert</>}
         />
         <RoomCard
           tone="neutral"
           icon="key"
           title="Privé sur invitation"
-          tag="En clair"
-          meta="S'ouvre par lien d'invitation. Contenu visible du serveur."
+          tag="Chiffré · clé de groupe"
+          meta="S'ouvre par lien d'invitation. La clé est remise par les membres à l'arrivée."
           access={<><LinkGlyph /> Lien d'invitation</>}
         />
         <RoomCard
           tone="ok"
           icon="lock"
           title="Privé à mot de passe"
-          tag="Chiffré E2E"
-          meta="Contenu illisible pour le serveur. Clé dérivée du mot de passe."
+          tag="Chiffré · mot de passe"
+          meta="Clé dérivée du mot de passe, que le serveur ne voit jamais."
           access={<><Icon name="lock" size={13} /> Mot de passe</>}
         />
       </div>
