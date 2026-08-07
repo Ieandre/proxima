@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { convKey, useStore } from '../store/useStore';
+import { convKey, store } from '../store/useStore';
 import type { JoinedRoom, Person, RoomKeyMode, RoomMember, RoomSummary } from './types';
 import {
   decryptBytes,
@@ -30,7 +30,7 @@ import { chime } from './sound';
 let socket: Socket | null = null;
 let heartbeat: ReturnType<typeof setInterval> | null = null;
 
-const s = () => useStore.getState();
+const s = () => store();
 const now = () => Date.now();
 
 /**

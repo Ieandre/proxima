@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 // Configuration de test isolée du build (pas de plugins Vite requis pour les tests
-// de logique pure : crypto E2E, préparation média, store Zustand).
+// de logique pure : crypto E2E, préparation média, store Pinia).
 export default defineConfig({
   test: {
     globals: true,

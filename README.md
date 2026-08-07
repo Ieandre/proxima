@@ -124,9 +124,9 @@ Architecture **temps réel, en mémoire, éphémère** : aucune base de données
   - **stockage volatil** (sessions, salons, signalements) avec TTL.
 
 ### Frontend (`frontend/`)
-- **React 19** + **TypeScript** + **Vite 7**
+- **Vue 3.5** + **TypeScript** + **Vite 7**
 - **TailwindCSS 4** — interface responsive en **français uniquement**
-- **Zustand 5** — état applicatif
+- **Pinia 3** — état applicatif
 - **socket.io-client** — temps réel
 - **libsodium-wrappers / -sumo** — chiffrement de bout en bout côté client
 
@@ -174,7 +174,7 @@ chat/
 │   ├── operator/               # Console opérateur statique (/operator)
 │   └── data/                   # cities.json, postal.json, permanent-rooms.json
 │
-├── frontend/                   # Application React / Vite
+├── frontend/                   # Application Vue / Vite
 │   └── src/
 │       ├── App.tsx             # Aiguillage par fragment (#cgu, #en-savoir-plus…)
 │       ├── components/
@@ -188,7 +188,7 @@ chat/
 │       │   ├── rooms/          # RoomBrowser, RoomCard
 │       │   └── pages/          # About, AboutSchemas, Legal
 │       ├── lib/                # crypto.ts (E2E), socket.ts, media.ts, types.ts
-│       └── store/useStore.ts   # État Zustand
+│       └── store/useStore.ts   # État Pinia
 │
 ├── test/                       # Suite de tests (node:test natif)
 │   └── helpers/                # fake-redis.js (Redis en mémoire), inject-redis.js

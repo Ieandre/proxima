@@ -72,7 +72,7 @@
     <!--
       Anti-FOUC : l'app-shell statique ci-dessous n'existe que pour les moteurs de
       recherche et les visiteurs sans JavaScript (son texte reste dans le HTML brut).
-      On le masque dès que le CSS est chargé — React remplace #root au montage — et on
+      On le masque dès que le CSS est chargé — Vue remplace #root au montage — et on
       ne le ré-affiche qu'en l'absence de JavaScript. Fond neutre = pas de flash blanc.
       Pur CSS (style-src 'unsafe-inline'), aucun script inline (CSP script-src par hash).
     -->
@@ -113,7 +113,7 @@
   <body>
     <!--
       App-shell statique : contenu vitrine servi en HTML brut pour les moteurs de
-      recherche et les visiteurs sans JavaScript. React (createRoot) remplace
+      recherche et les visiteurs sans JavaScript. Vue (createApp) remplace
       entièrement ce contenu au montage. Styles inline (autorisés par la CSP
       style-src 'unsafe-inline') pour ne dépendre ni de Tailwind ni du bundle JS.
     -->
@@ -192,6 +192,6 @@
         </footer>
       </main>
     </div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

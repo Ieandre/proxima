@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { convKey, useStore } from '../src/store/useStore';
+import { convKey, store } from '../src/store/useStore';
 import { chime } from '../src/lib/sound';
 import type { JoinedRoom, Person } from '../src/lib/types';
 
@@ -7,12 +7,13 @@ import type { JoinedRoom, Person } from '../src/lib/types';
    elle-même ayant sa propre suite (`sound.test.ts`). */
 vi.mock('../src/lib/sound', () => ({ chime: vi.fn() }));
 
-// Réinitialise le store entre chaque test (état global partagé).
+// Réinitialise le store entre chaque test (état global partagé — l'instance
+// Pinia vit dans le module du store, comme en production).
 beforeEach(() => {
-  useStore.getState().reset();
+  store().reset();
 });
 
-const s = () => useStore.getState();
+const s = () => store();
 
 const person = (id: string, pseudo = id): Person =>
   ({ id, pseudo, age: 30, gender: 'A', city: 'Paris', region: '', country: 'FR', countryLabel: 'France', pub: `PUB_${id}` } as Person);

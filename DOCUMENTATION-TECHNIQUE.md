@@ -66,11 +66,11 @@ périmètre, pas un détail d'implémentation.
 ### Modèle mental
 
 ```
-Navigateur (React + libsodium)                Serveur Node (Express + Socket.IO)         Redis
+Navigateur (Vue + libsodium)                Serveur Node (Express + Socket.IO)         Redis
 ─────────────────────────────                 ──────────────────────────────────        ─────
  crypto E2E (clé privée              WS         handlers/ (familles)                  cmd   présence (GEO)
    ne sort jamais)         ◄──────────────►     modules métier            ◄──────────────► sessions (TTL)
- store Zustand (RAM)         enveloppes         (sessions/rooms/geo/…)                     salons (TTL)
+ store Pinia (RAM)           enveloppes         (sessions/rooms/geo/…)                     salons (TTL)
  routage par hash            opaques            security / moderation                     reports (TTL, sans IP)
                                                                             pub/sub
                                                 adaptateur Redis  ◄──────────────────────► backplane multi-instances
@@ -92,13 +92,13 @@ le clair d'un message chiffré ni une IP.
 - Aucune dépendance crypto tierce côté serveur : le chiffrement est **entièrement côté client**, le serveur ne fait que du `crypto` natif Node (hash, comparaisons temps constant).
 
 ### Frontend — `frontend/src/`
-- **React 19** + **TypeScript** + **Vite 7** + **Tailwind 4** (configuré en CSS, pas de `tailwind.config.js`).
-- **Zustand 5** pour l'état (`store/useStore.ts`), **socket.io-client** pour le temps réel.
+- **Vue 3.5** + **TypeScript** + **Vite 7** + **Tailwind 4** (configuré en CSS, pas de `tailwind.config.js`).
+- **Pinia 3** pour l'état (`store/useStore.ts`), **socket.io-client** pour le temps réel.
 - **libsodium-wrappers-sumo** pour l'E2E (variante *sumo* obligatoire pour Argon2id).
 - Polices **auto-hébergées** (`@fontsource*`) — aucun CDN, cohérent avec la CSP stricte.
 
 ### Topologie mono-origine
-En production, le serveur Express **sert le build React** (`frontend/dist/`) et le
+En production, le serveur Express **sert le build Vue** (`frontend/dist/`) et le
 WebSocket sur **la même origine**. Il n'y a pas d'URL d'API séparée : le client fait
 `io()` sans argument. En dev, le serveur Vite (`:5173`) proxifie `/api` et `/socket.io`
 vers le backend (`:3000`).
@@ -459,10 +459,10 @@ privé sur invitation n'y est que **haché** (SHA-256 sel+mot de passe).
 
 ### Structure `frontend/src/`
 ```
-main.tsx            bootstrap React (createRoot + StrictMode)
+main.ts             bootstrap Vue (createApp + Pinia)
 App.tsx             connect() au montage + routage par hash + status
 index.css           thème Tailwind 4 (@theme) + styles + animations
-store/useStore.ts   état Zustand global (RAM, jamais persisté)
+store/useStore.ts   état Pinia global (RAM, jamais persisté)
 lib/socket.ts       connexion Socket.IO + tous les écouteurs/actions
 lib/crypto.ts       couche E2E libsodium (voir §8)
 lib/media.ts        préparation photos/vidéos (downscale, limites de taille)
@@ -479,7 +479,7 @@ Pas de react-router : **routage par `window.location.hash`** combiné à l'état
 - Sinon selon `status` : `connecting` → Splash, `onboarding`/`disconnected` → `Onboarding`, `live` → `Chat`.
 - **Auto-jonction par lien** (dans `Chat.tsx`) : `?r=<roomId>&k=<invite>` (invitation) ou `?r=<roomId>` seul → `peekRoom`, dont le `keyMode` décide : **mot de passe** ⇒ modale de saisie (il faut y dériver la clé), **public** ⇒ entrée directe (la clé sera remise par un membre, rien à saisir). Un mot de passe passé dans le fragment `#p=…` est lu puis **l'URL est immédiatement nettoyée** (`history.replaceState`) — le mot de passe ne part jamais au serveur.
 
-### Store Zustand (`store/useStore.ts`)
+### Store Pinia (`store/useStore.ts`)
 Un unique store, **entièrement volatil** (aucun `localStorage`, aucun middleware persist).
 State principal : `me`, `radiusKm`, `status`, `people` (présence), `pmPeers`
 (correspondants MP conservés même hors rayon), `publicRooms`, `joinedRooms`,
@@ -534,9 +534,9 @@ réverbération courte convolée depuis un bruit décroissant généré à la vo
 ### Balisage des messages (`lib/markdown.ts`)
 `parseMarkdown(text)` rend un **arbre** de blocs (`p`, `quote`, `pre`) et de nœuds en
 ligne (`text`, `code`, `b`/`i`/`u`/`s`/`spoiler`), que `MessageList` traduit en nœuds
-React. **Jamais de HTML assemblé puis réinjecté** : il n'y a donc rien à assainir — un
-message ne peut produire que les quelques balises prévues, et un `<script>` tapé reste
-du texte (React l'échappe ; la CSP l'interdirait de toute façon).
+Vue (`h()`). **Jamais de HTML assemblé puis réinjecté** — pas de `v-html` ici : il n'y a
+donc rien à assainir — un message ne peut produire que les quelques balises prévues, et
+un `<script>` tapé reste du texte (Vue l'échappe ; la CSP l'interdirait de toute façon).
 
 Reconnu : `**gras**`, `*ital*`/`_ital_`, `***les deux***`, `__souligné__`, `~~barré~~`,
 `` `code` ``, bloc entre lignes de trois barrières (langage optionnel, non coloré),
