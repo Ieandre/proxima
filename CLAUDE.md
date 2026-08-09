@@ -63,6 +63,15 @@ Trois couches, du plus léger au plus proche du réel :
 
 Pour un nouveau module backend qui touche Redis, suivre le pattern d'injection du fake plutôt que de mocker à la main. Pour un nouveau handler dans `handlers/`, ajouter un cas dans `test/socket.test.js` (rapide, déterministe) **et**, si le câblage temps réel est en jeu, un parcours E2E.
 
+## Déploiement
+
+**Un push sur `main` part en production.** `.github/workflows/ci.yml` exécute les trois suites, bâtit le front, puis envoie l'ensemble sur l'hôte. Une pull request exécute les mêmes tests sans jamais toucher l'hôte. En cas d'échec d'une suite, rien n'est envoyé.
+
+- Le **front est bâti par le coureur GitHub**, et c'est `frontend/dist` qui part sur la VM (un seul cœur, 138 Mo de dépendances de développement pour un résultat identique). Le serveur, lui, installe ses dépendances de production sur place.
+- Trois comptes sur l'hôte, installés une fois par `setup-ci-deploy.sh` : `proxima` exécute le service (sans sudo, sans shell), `deploy` possède l'arborescence et ne peut en root que relancer l'unité, le compte d'administration garde sudo entier. Le service ne tourne **pas** sous un compte à sudo, sans quoi déployer reviendrait à donner root.
+- `deploy.sh` reste le chemin de secours depuis le poste de travail ; il passe par le même compte `deploy`, pour qu'un seul utilisateur écrive dans `/opt/proxima`.
+- L'invitation Discord (`VITE_DISCORD_INVITE`) est une **variable de dépôt** GitHub, pas un secret : elle finit dans le bundle public. Elle reste hors du dépôt pour les raisons expliquées dans `frontend/src/lib/links.ts`.
+
 ## Contraintes non négociables (l'âme du projet)
 
 - **Zéro PII persistante, tout éphémère** : pas de base de données de contenu. Si une donnée doit survivre, elle a un TTL Redis. Ne jamais introduire de stockage durable d'identité ou de messages.

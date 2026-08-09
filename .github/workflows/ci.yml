@@ -1,0 +1,171 @@
+# Intégration et déploiement continus.
+#
+# Trois travaux : les deux suites de tests en parallèle, puis le déploiement en
+# production — qui ne part que si les deux sont vertes, et seulement depuis
+# `main`. Une pull request exécute donc les tests sans jamais toucher l'hôte.
+#
+# Le front est bâti ici, sur le coureur, et c'est `frontend/dist` qui part sur la
+# VM : elle n'a qu'un cœur, et les dépendances de développement du front y
+# pèsent 138 Mo pour un résultat identique. Le serveur, lui, installe ses
+# dépendances de production sur place.
+#
+# Configuration attendue sur le dépôt (Settings → Secrets and variables) :
+#   secrets   DEPLOY_SSH_KEY       clé privée du compte `deploy` (cf. setup-ci-deploy.sh)
+#             DEPLOY_HOST          hôte de production
+#             DEPLOY_KNOWN_HOSTS   clé publique de l'hôte, ligne known_hosts
+#   variables DEPLOY_USER, DEPLOY_PATH, DEPLOY_URL
+#             VITE_DISCORD_INVITE  invitation Discord, tenue hors du dépôt
+
+name: Intégration et déploiement continus
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Un seul déploiement à la fois, et jamais annulé en cours de route : un rsync
+# interrompu en plein vol laisserait l'arborescence distante à moitié écrite.
+concurrency:
+  group: proxima-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Serveur
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Avant toute installation, délibérément : la suite unitaire et
+      # d'intégration doit rester exécutable sans une seule dépendance npm.
+      # Lancée ici après un `npm ci`, une régression sur ce point passerait
+      # inaperçue.
+      - name: Tests unitaires et d'intégration (zéro dépendance)
+        run: npm test
+
+      - run: npm ci
+
+      - name: Tests E2E Socket.IO
+        run: npm run test:e2e
+
+  frontend:
+    name: Client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+
+      - name: Tests Vitest
+        run: npm test
+        working-directory: frontend
+
+      # `npm run build` enchaîne vue-tsc (le typage tient lieu de vérification),
+      # vite, le pré-rendu SEO et la pré-compression Brotli/gzip.
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_DISCORD_INVITE: ${{ vars.VITE_DISCORD_INVITE }}
+
+      - name: Conservation du build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  deploy:
+    name: Déploiement en production
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Exactement les fichiers que le client a produits et sur lesquels les
+      # tests sont passés — pas une seconde compilation, qui pourrait diverger.
+      - name: Récupération du build client
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Préparation de l'accès SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # `--delete` : l'arborescence distante doit refléter le dépôt, sinon un
+      # fichier supprimé ici survivrait indéfiniment là-bas. Les exclusions
+      # protègent ce qui n'appartient pas au dépôt — rsync ne lit pas
+      # `.gitignore`, et un fichier exclu n'est pas non plus supprimé.
+      - name: Envoi du code
+        env:
+          TARGET: ${{ vars.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          REMOTE_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.env' \
+            --exclude '*.local' \
+            --exclude '.deploy.env' \
+            --exclude 'node_modules' \
+            ./ "$TARGET:$REMOTE_PATH/"
+
+      - name: Dépendances de production et redémarrage
+        env:
+          TARGET: ${{ vars.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          REMOTE_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$TARGET" \
+            "set -eu
+             cd '$REMOTE_PATH'
+             npm ci --omit=dev
+             sudo -n /usr/bin/systemctl restart proxima
+             sleep 2
+             sudo -n /usr/bin/systemctl is-active proxima"
+
+      # Par l'URL publique, donc à travers le reverse-proxy : c'est ce que voit
+      # un visiteur, pas seulement ce que croit systemd. Plusieurs tentatives,
+      # le temps que le serveur charge la base des communes au démarrage.
+      - name: Contrôle de santé
+        env:
+          URL: ${{ vars.DEPLOY_URL }}
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS -m 10 "$URL/api/health" | grep -q '"ok":true'; then
+              echo "✅ $URL répond"
+              exit 0
+            fi
+            echo "tentative $i…"
+            sleep 3
+          done
+          echo "✗ $URL ne répond pas après le déploiement" >&2
+          exit 1

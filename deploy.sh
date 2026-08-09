@@ -11,7 +11,12 @@
 # Variables d'environnement — définies dans `.deploy.env` (non versionné, chargé
 # automatiquement ; modèle dans `.deploy.env.example`) ou exportées à la main :
 #   PROXIMA_HOST   (requis)    hôte cible
-#   PROXIMA_USER   (défaut: ubuntu)
+#   PROXIMA_DEPLOY_USER (défaut: deploy) — le compte créé par setup-ci-deploy.sh,
+#                  seul propriétaire de l'arborescence distante. S'y connecter
+#                  aussi depuis le poste de travail évite que les deux chemins de
+#                  déploiement se disputent les permissions. Distinct de
+#                  `PROXIMA_USER`, le compte d'administration qu'emploient
+#                  logs.sh et setup-onion.sh, qui eux ont besoin de sudo entier.
 #   PROXIMA_KEY    (défaut: ~/.ssh/id_ed25519)
 #   PROXIMA_PATH   (défaut: /opt/proxima)
 #   PROXIMA_URL    (requis)    URL publique, cible du curl de santé
@@ -25,7 +30,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
 if [[ -f "${SRC}.deploy.env" ]]; then source "${SRC}.deploy.env"; fi
 
 HOST="${PROXIMA_HOST:?PROXIMA_HOST est requis (hôte de déploiement) — cf. .deploy.env.example}"
-USER="${PROXIMA_USER:-ubuntu}"
+USER="${PROXIMA_DEPLOY_USER:-deploy}"
 KEY="${PROXIMA_KEY:-$HOME/.ssh/id_ed25519}"
 REMOTE_PATH="${PROXIMA_PATH:-/opt/proxima}"
 URL="${PROXIMA_URL:?PROXIMA_URL est requis (URL publique pour le contrôle de santé)}"
@@ -65,7 +70,9 @@ fi
 REMOTE
 
 echo "▶ 3/3 — Redémarrage du service…"
-$SSH "${USER}@${HOST}" 'sudo systemctl restart proxima && sleep 2 && systemctl is-active proxima'
+# Chemin absolu et `-n` : c'est la forme exacte qu'autorise /etc/sudoers.d/proxima-deploy
+# au compte de déploiement, qui ne peut rien faire d'autre en root.
+$SSH "${USER}@${HOST}" 'sudo -n /usr/bin/systemctl restart proxima && sleep 2 && systemctl is-active proxima'
 
 echo "▶ Vérif santé :"
 curl -s -m 15 "$URL/api/health" && echo
