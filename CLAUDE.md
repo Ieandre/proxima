@@ -25,7 +25,7 @@ Doc produit : [`README.md`](./README.md) · référence technique et règles mé
 
 - **Toujours** lancer `npm test` après une modif backend, et `npm run build` (dans `frontend/`) après une modif front — `build` fait office de typecheck.
 - Le `npm test` racine (unitaires + intégration des handlers) n'a **besoin d'aucun Redis réel** ni d'aucune dépendance npm (voir ci-dessous). Les suites **E2E** et **frontend**, elles, requièrent `npm install` (respectivement `socket.io-client` à la racine et Vitest dans `frontend/`).
-- Node ≥ 20 requis (`--env-file`, `node:test`).
+- Node ≥ 20 requis (`--env-file`, `node:test`). Les motifs de fichiers des scripts de test sont **laissés au shell** (non quotés, `find` pour l'E2E) : `node --test` n'expanse lui-même un motif qu'à partir de la v22, et la production tourne en 20 — quotés, les suites n'y trouvaient aucun fichier.
 
 ## Architecture (modèle mental)
 

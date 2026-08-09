@@ -11,9 +11,9 @@
     "dev": "node --env-file=.env --watch server/index.js",
     "dev:local": "node --env-file=.env --watch scripts/dev-local.js",
     "build:brand": "node scripts/build-brand-assets.js",
-    "test": "node --test \"test/*.test.js\"",
-    "test:watch": "node --test --watch \"test/*.test.js\"",
-    "test:e2e": "node --test \"test-e2e/**/*.e2e.test.js\"",
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "test:e2e": "node --test $(find test-e2e -name '*.e2e.test.js')",
     "test:all": "npm test && npm run test:e2e",
     "build:geo": "node scripts/build-geo.js"
   },
