@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { convKey, store } from '../store/useStore';
-import type { JoinedRoom, Person, RoomKeyMode, RoomMember, RoomSummary } from './types';
+import type { JoinedRoom, MediaAttachment, Person, RoomKeyMode, RoomMember, RoomSummary } from './types';
 import {
   decryptBytes,
   decryptFrom,
@@ -20,7 +20,7 @@ import {
   type Envelope,
   type RoomEnvelope,
 } from './crypto';
-import { decodeBody, encodeBody, newMessageId } from './body';
+import { decodeBody, encodeBody, newMessageId, type MessageBody } from './body';
 import { forgetIdentity, recallIdentity, rememberIdentity, type DeclaredIdentity } from './identity';
 import { mentionsPseudo } from './mentions';
 import { blobUrl, prepareMedia } from './media';
@@ -39,6 +39,20 @@ const now = () => Date.now();
  * propre enveloppe : deux clairs ne peuvent pas partager le nonce `n`.
  */
 type PmEnvelope = Envelope & { mime?: string; media?: string; body?: Envelope };
+
+/**
+ * Pièce jointe reconstruite à la réception.
+ *
+ * Le marqueur de nature (`image` / `video` / `audio`) est en clair : il faut savoir
+ * quoi construire avant d'avoir déchiffré quoi que ce soit, et il ne dit rien de
+ * plus que le type MIME qui l'accompagne déjà. Ce qu'un vocal a de descriptif — sa
+ * silhouette, sa durée — arrive lui par le corps SCELLÉ, jamais par le fil en clair.
+ */
+function attachmentOf(url: string, mime: string, marker?: string, voice?: MessageBody['voice']): MediaAttachment {
+  const kind = marker === 'video' ? 'video' : marker === 'audio' ? 'audio' : 'image';
+  if (kind !== 'audio') return { url, mime, kind };
+  return { url, mime, kind, peaks: voice?.peaks, seconds: voice?.seconds };
+}
 
 /**
  * Une mention ne vit que dans le texte du message : on la reconnaît ici, à la
@@ -224,7 +238,7 @@ function handleRoomMessage(m: RoomMessageIn, replayed = false): void {
         ...base,
         encrypted: true,
         text: '',
-        media: { url, mime: m.mime || '', kind: m.media === 'video' ? 'video' : 'image' },
+        media: attachmentOf(url, m.mime || '', m.media, body?.voice),
         replyTo: body?.replyTo,
       });
     } catch {
@@ -484,7 +498,7 @@ export async function connect(): Promise<void> {
             ...base,
             msgId: body?.id,
             text: '',
-            media: { url, mime: m.env.mime || '', kind: m.env.media === 'video' ? 'video' : 'image' },
+            media: attachmentOf(url, m.env.mime || '', m.env.media, body?.voice),
             replyTo: body?.replyTo,
           });
         } catch {
@@ -698,7 +712,12 @@ export async function editPM(peerId: string, messageId: string, text: string): P
   s().editMessage(`pm:${peerId}`, messageId, text);
 }
 
-export async function sendPMMedia(peerId: string, file: File, replyTo?: string): Promise<void> {
+export async function sendPMMedia(
+  peerId: string,
+  file: File,
+  replyTo?: string,
+  voice?: MessageBody['voice'],
+): Promise<void> {
   const peer = resolvePmPeer(peerId);
   if (!peer) return;
   let media;
@@ -716,21 +735,26 @@ export async function sendPMMedia(peerId: string, file: File, replyTo?: string):
     pub: exportPublicKey(),
     mime: media.mime,
     media: media.kind,
-    body: encryptFor(peer.pub, encodeBody({ id: msgId, text: '', replyTo })),
+    body: encryptFor(peer.pub, encodeBody({ id: msgId, text: '', replyTo, voice })),
   };
   socket?.emit('pm:send', { toId: peerId, kind: 'media', env, data: cipher, ts: now() });
   s().pushMessage(`pm:${peerId}`, {
     kind: 'me',
     msgId,
     text: '',
-    media: { url: blobUrl(media.bytes, media.mime), mime: media.mime, kind: media.kind },
+    media: attachmentOf(blobUrl(media.bytes, media.mime), media.mime, media.kind, voice),
     ts: now(),
     encrypted: true,
     replyTo,
   });
 }
 
-export async function sendRoomMedia(roomId: string, file: File, replyTo?: string): Promise<void> {
+export async function sendRoomMedia(
+  roomId: string,
+  file: File,
+  replyTo?: string,
+  voice?: MessageBody['voice'],
+): Promise<void> {
   let media;
   try {
     media = await prepareMedia(file);
@@ -741,11 +765,12 @@ export async function sendRoomMedia(roomId: string, file: File, replyTo?: string
   const key = keyForSending(roomId);
   if (!key) return;
   // Octets chiffrés en secretbox, nonce dans l'enveloppe, mime/kind en clair (rendu).
-  // La réponse citée passe par un corps scellé à part (`body`) : deux clairs ne peuvent
-  // pas partager le nonce `n`, déjà consommé par les octets du média.
+  // La réponse citée et la silhouette d'un vocal passent par un corps scellé à part
+  // (`body`) : deux clairs ne peuvent pas partager le nonce `n`, déjà consommé par
+  // les octets du média.
   const { nonce, cipher } = encryptRoomBytes(key, media.bytes);
   const env: RoomEnvelope & { body?: RoomEnvelope } = { n: nonce, c: '' };
-  if (replyTo) env.body = encryptRoom(key, encodeBody({ text: '', replyTo }));
+  if (replyTo || voice) env.body = encryptRoom(key, encodeBody({ text: '', replyTo, voice }));
   socket?.emit('room:message', {
     roomId, kind: 'media', mime: media.mime, media: media.kind, env, data: cipher, ts: now(), ke: sendingEpoch(roomId),
   });

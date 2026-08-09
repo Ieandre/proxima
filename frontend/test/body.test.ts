@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeBody, encodeBody, newMessageId } from '../src/lib/body';
 import { decryptFrom, encryptFor, exportPublicKey, initCrypto } from '../src/lib/crypto';
+import { packPeaks, resamplePeaks } from '../src/lib/voice';
 
 describe('corps de message scellé', () => {
   it('aller-retour complet (identifiant + texte + réponse)', () => {
@@ -33,6 +34,39 @@ describe('corps de message scellé', () => {
   it('préserve les sauts de ligne et les accents', () => {
     const text = 'première ligne\nseconde ligne — ça tient ?';
     expect(decodeBody(encodeBody({ text })).text).toBe(text);
+  });
+});
+
+describe('message vocal scellé', () => {
+  const peaks = resamplePeaks(Array.from({ length: 240 }, (_, i) => (i * 11) % 256));
+
+  it('la silhouette et la durée survivent à l\'aller-retour', () => {
+    const decoded = decodeBody(encodeBody({ text: '', voice: { peaks, seconds: 7.3 } }));
+    expect(decoded.voice?.seconds).toBeCloseTo(7.3, 1);
+    expect(decoded.voice?.peaks).toHaveLength(peaks.length);
+  });
+
+  it('un message ordinaire n\'annonce aucune voix', () => {
+    expect(decodeBody(encodeBody({ text: 'bonjour' })).voice).toBeUndefined();
+  });
+
+  it('durée absente ou aberrante : la forme reste, le compteur repart de zéro', () => {
+    expect(decodeBody('p1:{"t":"","v":"AAAA"}').voice?.seconds).toBe(0);
+    expect(decodeBody('p1:{"t":"","v":"AAAA","d":"douze"}').voice?.seconds).toBe(0);
+  });
+
+  it('la silhouette ne quitte pas l\'enveloppe — et ne la fait pas grossir', async () => {
+    await initCrypto();
+    const pub = exportPublicKey();
+    const plain = encryptFor(pub, encodeBody({ id: newMessageId(), text: '' }));
+    const voiced = encryptFor(pub, encodeBody({ id: newMessageId(), text: '', voice: { peaks, seconds: 12.5 } }));
+
+    expect(JSON.stringify(voiced)).not.toContain(packPeaks(peaks));
+    // Bourrage par blocs de 256 octets (cf. `lib/crypto`) : la silhouette tient
+    // dans le même bloc que l'identifiant. Le serveur ne voit donc AUCUNE
+    // différence de taille entre un vocal et un message ordinaire — la découpe
+    // parole/silence ne fuit ni par le contenu ni par la longueur.
+    expect(voiced.c.length).toBe(plain.c.length);
   });
 });
 

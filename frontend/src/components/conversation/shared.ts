@@ -10,8 +10,10 @@ export const fmtTime = (ts: number) =>
  * pièce jointe. Le balisage est retiré (`plainText`) — un aperçu d'une ligne n'a
  * pas la place du style, et encore moins celle de ses marques.
  */
+const MEDIA_LABEL = { video: 'Vidéo', audio: 'Message vocal', image: 'Photo' } as const;
+
 export const excerptOf = (m: Message) =>
-  m.retracted ? 'Message retiré' : m.media ? (m.media.kind === 'video' ? 'Vidéo' : 'Photo') : plainText(m.text);
+  m.retracted ? 'Message retiré' : m.media ? MEDIA_LABEL[m.media.kind] : plainText(m.text);
 
 /**
  * Texte d'un message, mentions mises en évidence. La reconnaissance se fait contre

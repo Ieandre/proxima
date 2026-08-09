@@ -115,8 +115,8 @@ function onSend(t: string) {
   replyTo.value = null;
 }
 
-function onMediaFile(f: File) {
-  sendRoomMedia(props.roomId, f, replyTo.value?.msgId);
+function onMediaFile(f: File, voice?: { peaks: Uint8Array; seconds: number }) {
+  sendRoomMedia(props.roomId, f, replyTo.value?.msgId, voice);
   replyTo.value = null;
 }
 

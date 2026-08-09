@@ -3,7 +3,7 @@ import { computed, defineComponent, h, onMounted, ref, watch, type VNode } from 
 import { parseMarkdown, type Block, type Inline } from '../../lib/markdown';
 import { splitMentions } from '../../lib/mentions';
 import { REPORT_REASON_LABEL, type Message, type ReportReason } from '../../lib/types';
-import { avatarColor, Modal } from '../ui';
+import { avatarColor, Modal, VoicePlayer } from '../ui';
 import { excerptOf, fmtTime } from './shared';
 
 const props = defineProps<{
@@ -289,6 +289,29 @@ const Quote = defineComponent(
             </span>
             <div v-if="row.m.retracted" class="bubble bubble-them text-faint italic" :style="row.accent">
               Message retiré par la modération
+            </div>
+            <!-- ---- Message vocal ---- -->
+            <!-- Une bulle, et non le cadre des photos : un vocal est court, il se
+                 cite, il porte une heure — il se comporte comme une parole, pas
+                 comme une image. La silhouette est celle relevée au micro de
+                 l'émetteur, arrivée scellée dans l'enveloppe. -->
+            <div
+              v-else-if="row.m.media && row.m.media.kind === 'audio'"
+              :class="`bubble bubble--voice ${row.mine ? 'bubble-me' : 'bubble-them'}`"
+              :style="row.accent"
+            >
+              <Quote
+                v-if="row.m.replyTo"
+                :quoted="row.quoted"
+                :mine="row.mine"
+                :onJump="row.quoted ? () => jumpTo(row.m.replyTo!) : undefined"
+              />
+              <VoicePlayer
+                :url="row.m.media.url"
+                :seconds="row.m.media.seconds ?? 0"
+                :peaks="row.m.media.peaks"
+              />
+              <span v-if="row.endsRun" class="stamp-ts">{{ fmtTime(row.m.ts) }}</span>
             </div>
             <!-- ---- Pièce jointe (photo / vidéo) ---- -->
             <div

@@ -1025,6 +1025,174 @@ button.quote:hover {
   color: var(--color-ink);
 }
 
+/* ----------------------------------------------------------------------- */
+/* Message vocal                                                            */
+/* ----------------------------------------------------------------------- */
+/* La silhouette est relevée AU MICRO et voyage scellée dans l'enveloppe (cf.
+   `lib/voice.ts`) : ces barres sont celles que l'émetteur a vues se tracer, et
+   non une analyse refaite à la réception. Deux couches de géométrie identique se
+   superposent — la seconde, découpée à l'avancement, remplit la première sans
+   faire sauter les hauteurs d'une valeur à l'autre. */
+/* Largeur bornée : une silhouette étirée sur toute la largeur d'un bandeau donne
+   des barres plus larges que hautes, qui cessent de se lire comme du son. Ce
+   plafond garde le même rapport barre/écart partout — la forme est le même objet
+   dans l'aperçu et dans la bulle, il n'a pas à changer de proportions en chemin. */
+.wave {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+  height: 26px;
+}
+.wave__layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.wave__layer--filled {
+  clip-path: inset(0 calc(100% - var(--wave-filled, 0%)) 0 0);
+}
+/* Rayon léger, jamais la pilule : une barre arrondie à ses extrémités devient un
+   ovale dès qu'elle est courte, et un silence cesse de se distinguer d'un son. */
+.wave__bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.3;
+  transition: height 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wave__layer--filled .wave__bar {
+  opacity: 1;
+}
+/* Pendant la capture, la forme suit la voix : une transition longue la ferait
+   traîner d'un demi-mot derrière ce qu'on est en train de dire. */
+.wave--live .wave__bar {
+  transition-duration: 70ms;
+}
+
+/* Lecteur — pastille de transport, silhouette qui sert de règle, compteur. Le
+   même objet dans l'aperçu avant envoi et dans la bulle une fois sur le fil. */
+.voice {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+.voice__play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: currentColor;
+  transition: transform 0.14s;
+}
+/* Le glyphe est creusé dans la pastille : il prend la couleur du fond qu'elle
+   couvre, pas la sienne. */
+.voice__play svg {
+  color: var(--voice-hollow, var(--color-card));
+}
+.voice__play:hover {
+  transform: scale(1.06);
+}
+.voice__play:active {
+  transform: scale(0.95);
+}
+/* Même plafond que la silhouette qu'il porte : sans lui, la zone cliquable
+   s'étirerait jusqu'au bord et laisserait le compteur seul à l'autre bout. */
+.voice__wave {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+  align-items: center;
+  cursor: pointer;
+}
+/* Compteur en mono : ce sont des chiffres qui changent en place, et rien ne doit
+   bouger autour d'eux pendant l'écoute. */
+.voice__time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
+}
+
+/* Bulle d'un vocal : largeur fixe, puisque son contenu ne dicte aucune longueur.
+   Taillée sur la somme de ses parts (pastille, silhouette, compteur), et bornée
+   par la largeur de bulle courante sur les écrans étroits. */
+.bubble--voice {
+  width: 292px;
+}
+
+/* Capture en cours. Le rouge ne dit pas « erreur » ici mais « ça enregistre » —
+   c'est le seul moment où l'application écoute, et il se voit de loin. */
+.reply-bar--rec {
+  align-items: center;
+  gap: 0.55rem;
+  border-left-color: var(--color-danger);
+  color: var(--color-danger);
+}
+/* La silhouette étant bornée, c'est le compteur qui absorbe la largeur restante :
+   la forme et le temps restent groupés à gauche, les commandes à droite. */
+.reply-bar--rec .voice__time {
+  margin-right: auto;
+}
+.rec-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-danger);
+  animation: recPulse 1.5s ease-in-out infinite;
+}
+@keyframes recPulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+.btn-rec {
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+}
+.btn-rec:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
+/* Écoute avant envoi. Le bleu remplace le rouge à l'instant où la prise se
+   termine : la capture est finie, l'objet est à soi, rien n'est parti. */
+.reply-bar--voice {
+  align-items: center;
+  color: var(--color-blue);
+}
+
+/* Sur le fil, la silhouette prend la couleur de sa bulle : bleue chez l'autre,
+   blanche chez soi, où la pastille s'inverse pour rester lisible sur l'aplat. */
+.bubble-them .voice {
+  color: var(--color-blue);
+}
+.bubble-me .voice {
+  color: #fff;
+  --voice-hollow: var(--color-blue-deep);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave__bar {
+    transition: none;
+  }
+  .rec-dot {
+    animation: none;
+  }
+  .voice__play:hover,
+  .voice__play:active {
+    transform: none;
+  }
+}
+
 /* Horodatage : chiffres à largeur fixe, ce qui donne l'alignement du mono sans son
    esthétique de terminal. */
 .bubble .stamp-ts {

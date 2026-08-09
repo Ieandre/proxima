@@ -3,10 +3,13 @@
  * - Images : ré-orientées et redimensionnées (≤ 1600 px) puis ré-encodées en JPEG
  *   pour un affichage propre et un poids maîtrisé. Les GIF sont conservés tels quels.
  * - Vidéos : envoyées telles quelles, sous un plafond de taille.
+ * - Voix : envoyée telle quelle. Le format sort déjà de l'enregistreur (Opus, ou
+ *   le conteneur du navigateur) — le ré-encoder ne ferait que dégrader ce qui est
+ *   déjà compressé pour la parole (cf. `lib/voice.ts`).
  * Rien n'est stocké : les octets sont relayés en temps réel.
  */
 
-export type PreparedMedia = { bytes: Uint8Array; mime: string; kind: 'image' | 'video' };
+export type PreparedMedia = { bytes: Uint8Array; mime: string; kind: 'image' | 'video' | 'audio' };
 
 /**
  * Ce que l'on lit d'un presse-papiers : sous-ensemble structurel de `DataTransfer`,
@@ -22,6 +25,10 @@ const MAX_DIM = 1600;
 const MAX_VIDEO = 12 * 1024 * 1024; // 12 Mo
 const MAX_GIF = 8 * 1024 * 1024; // 8 Mo (animé : pas de redimensionnement)
 const MAX_RAW_IMAGE = 10 * 1024 * 1024;
+// 3 Mo : très au-dessus de ce que produisent trois minutes d'Opus (~700 Ko), donc
+// le plafond qui mord réellement est celui de la durée (cf. `lib/voice.ts`). Celui-ci
+// n'est là que pour borner un conteneur inattendu.
+const MAX_AUDIO = 3 * 1024 * 1024;
 
 /**
  * Média collé depuis le presse-papiers, ou `null` si le collage n'en contient pas.
@@ -72,7 +79,12 @@ export async function prepareMedia(file: File): Promise<PreparedMedia> {
     return { bytes: new Uint8Array(await file.arrayBuffer()), mime: type || 'video/mp4', kind: 'video' };
   }
 
-  throw new Error('Format non pris en charge (images et vidéos uniquement).');
+  if (type.startsWith('audio/')) {
+    if (file.size > MAX_AUDIO) throw new Error('Message vocal trop lourd (max 3 Mo).');
+    return { bytes: new Uint8Array(await file.arrayBuffer()), mime: type, kind: 'audio' };
+  }
+
+  throw new Error('Format non pris en charge (images, vidéos et voix uniquement).');
 }
 
 async function downscaleImage(file: File): Promise<Blob> {

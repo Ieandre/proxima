@@ -51,6 +51,25 @@ describe('prepareMedia', () => {
     await expect(prepareMedia(fileOf(13 * 1024 * 1024, 'video/mp4', 'big.mp4'))).rejects.toThrow(/Vidéo trop lourde/);
   });
 
+  it('message vocal : relayé tel quel, sans ré-encodage', async () => {
+    // Le conteneur sort de l'enregistreur, déjà compressé pour la parole : le
+    // repasser dans un encodeur ne ferait que dégrader (cf. `lib/voice.ts`).
+    const out = await prepareMedia(fileOf(4096, 'audio/webm;codecs=opus', 'vocal.webm'));
+    expect(out.kind).toBe('audio');
+    expect(out.mime).toBe('audio/webm;codecs=opus');
+    expect(out.bytes.length).toBe(4096);
+  });
+
+  it('message vocal au format de Safari : même chemin', async () => {
+    expect((await prepareMedia(fileOf(2048, 'audio/mp4', 'vocal.m4a'))).kind).toBe('audio');
+  });
+
+  it('message vocal trop lourd (> 3 Mo) : rejeté', async () => {
+    await expect(prepareMedia(fileOf(4 * 1024 * 1024, 'audio/webm', 'long.webm'))).rejects.toThrow(
+      /vocal trop lourd/i,
+    );
+  });
+
   it('format non pris en charge : rejeté', async () => {
     await expect(prepareMedia(fileOf(128, 'application/pdf', 'doc.pdf'))).rejects.toThrow(/non pris en charge/);
   });

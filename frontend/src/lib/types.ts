@@ -55,7 +55,14 @@ export type JoinedRoom = {
 export type MediaAttachment = {
   url: string; // object URL local (blob:)
   mime: string;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'audio';
+  /**
+   * Voix : silhouette du son (40 hauteurs, 0–255) et durée, relevées au micro et
+   * scellées dans l'enveloppe (cf. `lib/voice.ts`). Absentes d'un vocal dont la
+   * silhouette n'a pas pu être relevée — la bulle reste écoutable.
+   */
+  peaks?: Uint8Array;
+  seconds?: number;
 };
 
 export type Message = {

@@ -39,6 +39,14 @@ const PATHS: Record<string, string> = {
   info: '<circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 7.5h.01" />',
   paperclip:
     '<path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 17.4a1.7 1.7 0 0 1-2.3-2.3l7.8-7.8" />',
+  /* Voix. La capsule sur pied dit « micro » sans passer par le micro de scène,
+     dont la grille ne se lit plus à 18 px. */
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" />',
+  /* Lecture / pause / arrêt. Pleins, contrairement au reste du jeu qui est au
+     trait : ce sont des commandes de transport, on les vise plus qu'on ne les lit. */
+  play: '<path d="M8 5.2v13.6L19 12 8 5.2Z" fill="currentColor" stroke-linejoin="round" />',
+  pause: '<path d="M9.5 5v14M14.5 5v14" stroke-width="2.6" />',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" />',
   filter: '<path d="M3 5h18l-7 8v6l-4-2v-4L3 5Z" />',
   logout:
     '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4" /><path d="M10 12H3m4-4-4 4 4 4" />',

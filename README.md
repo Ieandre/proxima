@@ -55,7 +55,7 @@ Principes directeurs :
 
 ### Messages privés (MP)
 - **Chiffrés de bout en bout** (X25519 + XSalsa20-Poly1305 via libsodium).
-- Texte et **pièces jointes** (photos / vidéos) chiffrées — au trombone ou **collées depuis le presse-papiers** (Ctrl/Cmd+V), avec un aperçu à confirmer avant l'envoi.
+- Texte, **pièces jointes** (photos / vidéos) et **messages vocaux** chiffrés — au trombone, **collés depuis le presse-papiers** (Ctrl/Cmd+V) ou dictés au micro, toujours avec un aperçu à confirmer avant l'envoi.
 - Indicateur « est en train d'écrire », **safety number** (empreinte de conversation) pour détecter un MITM, signalement possible.
 
 ### Salons
@@ -83,6 +83,14 @@ Dans un salon, taper `@` propose les **présents** ; le pseudo choisi s'insère 
 - Une mention **n'est que du texte** : aucune liste d'identifiants n'accompagne le message. Le serveur n'apprend donc rien de nouveau — sur un salon chiffré, il ignore jusqu'à l'existence de la mention.
 - La reconnaissance se fait à l'affichage, contre la liste des présents ([`frontend/src/lib/mentions.ts`](./frontend/src/lib/mentions.ts)) : un `@inconnu` reste du texte ordinaire, et une personne partie cesse d'être mise en évidence.
 - Être nommé teinte la bulle, fait passer la pastille du salon en `@n` et déclenche une alerte si l'on n'a pas le salon sous les yeux.
+
+### Messages vocaux
+Dans les MP comme dans les salons, le micro du champ de saisie enregistre un message vocal chiffré (Opus, ou le conteneur du navigateur), plafonné à trois minutes.
+
+- **On s'entend toujours avant les autres** : la prise ne part pas au relâchement d'un bouton. On la termine, on l'écoute, puis on l'envoie — Entrée pour envoyer, Échap pour retirer, comme pour une capture collée. Rien ne quitte l'appareil tant qu'on n'a pas tranché.
+- La **silhouette du son** est relevée au micro pendant l'enregistrement et voyage **scellée dans l'enveloppe** ([`frontend/src/lib/body.ts`](./frontend/src/lib/body.ts)), à côté de l'identifiant du message et de la réponse citée. Le destinataire redessine donc exactement la forme tracée chez l'émetteur, sans décoder un seul octet — et le serveur, lui, n'apprend ni où l'on parle ni où l'on se tait.
+- Elle est **compactée à quatre bits par barre**, ce qui la fait tenir dans le bloc de bourrage déjà appliqué avant chiffrement : à taille de ciphertext inchangée, un vocal ne se distingue pas d'un message ordinaire par sa longueur.
+- Le bouton n'apparaît **que là où le navigateur sait enregistrer**. Un micro refusé le dit et explique quoi faire, il ne laisse pas un bouton inerte.
 
 ### Balisage des messages
 Pas de barre d'outils : on tape le balisage, il est interprété à l'affichage ([`frontend/src/lib/markdown.ts`](./frontend/src/lib/markdown.ts)).

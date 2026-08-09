@@ -5,5 +5,7 @@ export { default as Avatar } from './Avatar.vue';
 export { default as Logo } from './Logo.vue';
 export { default as Modal } from './Modal.vue';
 export { default as Icon } from './Icon.vue';
+export { default as Waveform } from './Waveform.vue';
+export { default as VoicePlayer } from './VoicePlayer.vue';
 export { default as DiscordGlyph } from './DiscordGlyph.vue';
 export { default as GitHubGlyph } from './GitHubGlyph.vue';

@@ -50,8 +50,8 @@ function onSend(t: string) {
   replyTo.value = null;
 }
 
-function onMediaFile(f: File) {
-  sendPMMedia(props.peerId, f, replyTo.value?.msgId);
+function onMediaFile(f: File, voice?: { peaks: Uint8Array; seconds: number }) {
+  sendPMMedia(props.peerId, f, replyTo.value?.msgId, voice);
   replyTo.value = null;
 }
 

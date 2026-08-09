@@ -2,9 +2,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { mediaFromClipboard } from '../../lib/media';
 import { applyMention, mentionQuery } from '../../lib/mentions';
+import { canRecordVoice } from '../../lib/voice';
+import { useVoiceRecorder } from '../../composables/voice';
 import type { RoomMember } from '../../lib/types';
 import { Avatar, Icon } from '../ui';
 import type { EditDraft, ReplyDraft } from './drafts';
+import VoiceBar from './VoiceBar.vue';
 
 const MAX_SUGGESTIONS = 6;
 
@@ -18,7 +21,12 @@ const props = defineProps<{
   onSend: (text: string) => void;
   placeholder: string;
   onTyping?: () => void;
-  onMedia?: (file: File) => void;
+  /**
+   * Pièce jointe à envoyer. `voice` n'accompagne qu'un message vocal : la
+   * silhouette du son et sa durée, relevées au micro, que l'appelant scellera
+   * dans l'enveloppe (cf. `lib/body.ts`).
+   */
+  onMedia?: (file: File, voice?: { peaks: Uint8Array; seconds: number }) => void;
   reply?: ReplyDraft | null;
   onCancelReply?: () => void;
   /**
@@ -46,6 +54,22 @@ const highlighted = ref(0);
 const pasted = ref<{ file: File; url: string; kind: 'image' | 'video' } | null>(null);
 const fileRef = ref<HTMLInputElement | null>(null);
 const areaRef = ref<HTMLTextAreaElement | null>(null);
+/**
+ * Prise de son. Elle vit à côté du collage et suit la même règle : rien ne part
+ * sans un arrêt volontaire. Le bouton ne s'affiche que là où le navigateur sait
+ * enregistrer — proposer un micro qui ne s'ouvrira pas ne rend service à personne.
+ */
+const {
+  state: voiceState,
+  livePeaks,
+  seconds: voiceSeconds,
+  take: voiceTake,
+  previewUrl: voicePreview,
+  start: startVoice,
+  finish: finishVoice,
+  discard: discardVoice,
+} = useVoiceRecorder();
+const canRecord = canRecordVoice();
 // Message en cours de rédaction, mis de côté le temps d'une modification.
 // `null` = on ne modifie rien, donc rien n'est en attente d'être rendu.
 let parkedDraft: string | null = null;
@@ -145,9 +169,16 @@ onMounted(() => {
 
 function send() {
   const t = text.value.trim();
-  if (!t && !pasted.value) return;
+  const spoken = voiceState.value === 'ready' ? voiceTake.value : null;
+  if (!t && !pasted.value && !spoken) return;
   // Le média part avant le texte, qui le commente. Deux messages : sur le fil,
   // une pièce jointe ne transporte pas de légende.
+  if (spoken) {
+    props.onMedia?.(spoken.file, { peaks: spoken.peaks, seconds: spoken.seconds });
+    // Le fichier est déjà entre les mains de l'appelant : ne meurt ici que
+    // l'aperçu, dont l'URL d'objet n'a plus rien à montrer.
+    discardVoice();
+  }
   if (pasted.value) {
     props.onMedia?.(pasted.value.file);
     pasted.value = null;
@@ -207,9 +238,19 @@ function onKeyDown(e: KeyboardEvent) {
       return;
     }
   }
-  if (e.key === 'Enter' && !e.shiftKey) {
+  // Entrée pendant la capture TERMINE la prise, elle ne l'envoie pas : la barre
+  // qui vient de s'ouvrir est le geste en cours, et la règle du vocal est qu'on
+  // s'écoute avant. Une seconde frappe envoie, comme pour un collage.
+  if (e.key === 'Enter' && !e.shiftKey && voiceState.value === 'recording') {
+    e.preventDefault();
+    void finishVoice();
+  } else if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     send();
+  } else if (e.key === 'Escape' && voiceState.value !== 'idle') {
+    // La prise de son est le geste le plus récent : Échap la retire d'abord.
+    e.preventDefault();
+    discardVoice();
   } else if (e.key === 'Escape' && pasted.value) {
     // Le collage est le geste le plus récent : Échap le retire d'abord.
     e.preventDefault();
@@ -286,6 +327,17 @@ function onKeyDown(e: KeyboardEvent) {
       </button>
     </div>
 
+    <VoiceBar
+      v-if="onMedia && voiceState !== 'idle'"
+      :state="voiceState"
+      :livePeaks="livePeaks"
+      :seconds="voiceSeconds"
+      :take="voiceTake"
+      :previewUrl="voicePreview"
+      :onFinish="finishVoice"
+      :onDiscard="discardVoice"
+    />
+
     <div class="flex items-end gap-2">
       <template v-if="onMedia">
         <input ref="fileRef" type="file" accept="image/*,video/*" class="hidden" @change="onFileChange" />
@@ -299,6 +351,26 @@ function onKeyDown(e: KeyboardEvent) {
           :title="edit ? 'Modification en cours' : 'Joindre une photo ou une vidéo'"
         >
           <Icon name="paperclip" :size="18" />
+        </button>
+        <!-- Le micro n'apparaît que là où le navigateur sait enregistrer : un
+             bouton qui n'ouvrirait rien vaut moins que pas de bouton. -->
+        <button
+          v-if="canRecord"
+          :class="`btn h-[44px] px-3 ${voiceState === 'recording' ? 'btn-rec' : 'btn-ghost'}`"
+          @click="voiceState === 'recording' ? finishVoice() : startVoice()"
+          :disabled="!!edit || voiceState === 'ready'"
+          :aria-label="voiceState === 'recording' ? 'Terminer l’enregistrement' : 'Enregistrer un message vocal'"
+          :title="
+            edit
+              ? 'Modification en cours'
+              : voiceState === 'recording'
+                ? 'Terminer l’enregistrement'
+                : voiceState === 'ready'
+                  ? 'Message vocal prêt à envoyer'
+                  : 'Enregistrer un message vocal'
+          "
+        >
+          <Icon :name="voiceState === 'recording' ? 'stop' : 'mic'" :size="18" />
         </button>
       </template>
       <textarea
@@ -318,7 +390,7 @@ function onKeyDown(e: KeyboardEvent) {
       <button
         class="btn btn-primary h-[44px] px-4"
         @click="send"
-        :disabled="!text.trim() && !pasted"
+        :disabled="!text.trim() && !pasted && voiceState !== 'ready'"
         :aria-label="edit ? 'Valider la modification' : 'Envoyer'"
       >
         <Icon :name="edit ? 'check' : 'send'" :size="17" />

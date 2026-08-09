@@ -39,14 +39,27 @@ function keyEpoch(payload) {
 }
 
 /**
+ * Natures de pièce jointe relayables. Liste fermée : le marqueur est réémis tel
+ * quel à tout le salon, une valeur libre laisserait un émetteur y glisser du texte
+ * de son choix.
+ */
+const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
+
+/**
  * Champs d'une pièce jointe. Le `mime` est tronqué et jamais interprété côté serveur ;
  * les octets sont chiffrés, donc opaques comme le reste.
+ *
+ * Le marqueur de nature reste en clair — le destinataire doit savoir quoi construire
+ * avant de déchiffrer — et n'apprend au serveur rien que le `mime` ne dise déjà. Ce
+ * qui DÉCRIT un vocal (sa silhouette sonore, sa durée) voyage, lui, dans le corps
+ * scellé, hors de portée : la découpe parole/silence d'une voix en dirait trop sur
+ * un contenu que le serveur n'est pas censé pouvoir lire.
  */
 function mediaFields(payload) {
   return {
     kind: 'media',
     mime: clamp(payload.mime, 100),
-    media: payload.media === 'video' ? 'video' : 'image',
+    media: MEDIA_KINDS.has(payload.media) ? payload.media : 'image',
     data: payload.data,
   };
 }

@@ -1230,6 +1230,28 @@ describe('room:message', () => {
     assert.equal('replyTo' in msg, false, 'même pour un média, la citation reste scellée');
   });
 
+  test('message vocal : relayé comme toute pièce jointe, marqueur de nature conservé', async () => {
+    const { owner, roomId } = await makeRoom(ALICE);
+    await owner.sock.deliver('room:message', {
+      roomId, kind: 'media', mime: 'audio/webm;codecs=opus', media: 'audio', data: Buffer.from([7, 7]), env: ENV,
+    });
+    const msg = owner.sock.last('room:message');
+    assert.equal(msg.media, 'audio');
+    assert.deepEqual(msg.env, ENV);
+    // Ce qui DÉCRIT la voix — silhouette et durée — voyage dans le corps scellé :
+    // rien de tel ne doit apparaître sur le fil (cf. `frontend/src/lib/body.ts`).
+    assert.equal('peaks' in msg, false);
+    assert.equal('seconds' in msg, false);
+  });
+
+  test('marqueur de nature inconnu : ramené à « image » plutôt que relayé tel quel', async () => {
+    const { owner, roomId } = await makeRoom(ALICE);
+    await owner.sock.deliver('room:message', {
+      roomId, kind: 'media', media: '<script>', data: Buffer.from([1]), env: ENV,
+    });
+    assert.equal(owner.sock.last('room:message').media, 'image');
+  });
+
   test('média sans octets : ignoré', async () => {
     const { owner, roomId } = await makeRoom(ALICE);
     await owner.sock.deliver('room:message', { roomId, kind: 'media', env: ENV });
