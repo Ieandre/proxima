@@ -9,6 +9,7 @@ const { createAdapter } = require('@socket.io/redis-adapter');
 
 const config = require('./config');
 const { PAGES, FILE_BY_PATH } = require('./pages');
+const { PREFIX: CITY_PREFIX, CITY_FILE_BY_PATH } = require('./city-pages');
 const { connectRedis, pubClient, subClient } = require('./infra/redis');
 const cities = require('./domain/cities');
 const security = require('./security');
@@ -44,9 +45,10 @@ function stripTrailingSlash(pathname) {
  * contente de réécrire `req.url` et de poser les en-têtes de négociation :
  * `express.static` fait tout le reste (ETag, Range, 304).
  *
- * Les pages publiques passent par `FILE_BY_PATH` : leur URL (`/cgu`) ne porte pas
- * le nom du fichier pré-rendu (`cgu.html`). Sans cette table, elles seraient les
- * seules réponses HTML non compressées du site.
+ * Les pages publiques passent par `FILE_BY_PATH` (et les pages de ville par
+ * `CITY_FILE_BY_PATH`) : leur URL (`/cgu`, `/tchat/nancy`) ne porte pas le nom du
+ * fichier pré-rendu (`cgu.html`, `tchat-nancy.html`). Sans ces tables, elles
+ * seraient les seules réponses HTML non compressées du site.
  */
 function preferPrecompressed(dist) {
   const variants = [
@@ -70,10 +72,12 @@ function preferPrecompressed(dist) {
       // Une page publique désigne son fichier pré-rendu ; `/` désigne index.html,
       // comme le fait express.static pour tout chemin terminé par `/`. `rel` est
       // toujours relatif à dist, sans slash initial.
-      rel = (FILE_BY_PATH.get(stripTrailingSlash(decoded)) || decoded.replace(/\/$/, '/index.html')).replace(
-        /^\/+/,
-        '',
-      );
+      const clean = stripTrailingSlash(decoded);
+      rel = (
+        FILE_BY_PATH.get(clean) ||
+        CITY_FILE_BY_PATH.get(clean) ||
+        decoded.replace(/\/$/, '/index.html')
+      ).replace(/^\/+/, '');
       target = path.join(dist, rel);
     } catch {
       return next(); // séquence %XX invalide : laisser express répondre
@@ -209,6 +213,25 @@ async function main() {
         res.sendFile(fs.existsSync(file) ? file : indexHtml);
       });
     }
+
+    // `/tchat` seul n'est pas une page : c'est le sommaire qu'on cherchait. Une
+    // redirection permanente plutôt qu'une 404, parce que l'URL est devinable et
+    // que la réponse existe — mais jamais vers `index.html`, ce qui ferait de
+    // `/tchat` un doublon indexable de l'accueil.
+    app.get(CITY_PREFIX, (_req, res) => res.redirect(301, '/villes'));
+
+    // Pages par ville (`server/city-pages.js`) : une seule route paramétrée,
+    // mais le slug est validé contre la sélection — un `/tchat/nimportequoi`
+    // doit être une vraie 404, pas une page vide indexable. C'est la même
+    // exigence que l'absence de fallback `app.get('*')` ci-dessus.
+    app.get(`${CITY_PREFIX}/:slug`, (req, res, next) => {
+      const route = CITY_FILE_BY_PATH.get(`${CITY_PREFIX}/${req.params.slug}`);
+      if (!route) return next();
+      const file = path.join(dist, route);
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(fs.existsSync(file) ? file : indexHtml);
+    });
+
     app.use(notFound);
   } else {
     app.get('/', (_req, res) =>

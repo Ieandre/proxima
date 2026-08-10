@@ -9,11 +9,11 @@ const path = require('node:path');
 require('./helpers/inject-redis');
 const security = require('../server/security');
 const { ORIGIN, PAGES, PRERENDERED } = require('../server/pages');
-const { renderPage } = require('../scripts/prerender-routes');
+const { cityPages } = require('../server/city-pages');
+const { renderPage, sitemap } = require('../scripts/prerender-routes');
 
 const ROOT = path.join(__dirname, '..');
 const INDEX_HTML = path.join(ROOT, 'frontend', 'index.html');
-const SITEMAP = path.join(ROOT, 'frontend', 'public', 'sitemap.xml');
 const ROUTER_TS = path.join(ROOT, 'frontend', 'src', 'lib', 'router.ts');
 
 /* ==========================================================================
@@ -70,13 +70,16 @@ test('pages : toutes indexables (aucune ne tombe sous une règle noindex)', () =
  * ======================================================================== */
 
 test('pages : le sitemap liste exactement les pages déclarées', () => {
-  const xml = fs.readFileSync(SITEMAP, 'utf8');
-  const listed = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  const listed = [...sitemap('2026-01-01').matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
 
   // L'accueil s'écrit avec son slash final dans un sitemap ; les autres non.
-  const expected = PAGES.map((p) => (p.path === '/' ? `${ORIGIN}/` : `${ORIGIN}${p.path}`));
+  const expected = [
+    ...PAGES.map((p) => (p.path === '/' ? `${ORIGIN}/` : `${ORIGIN}${p.path}`)),
+    ...cityPages().map((p) => `${ORIGIN}${p.path}`),
+  ];
 
-  assert.deepEqual(listed.slice().sort(), expected.slice().sort(), 'sitemap désynchronisé de server/pages.js');
+  assert.deepEqual(listed.slice().sort(), expected.slice().sort(), 'sitemap désynchronisé des déclarations');
+  assert.equal(new Set(listed).size, listed.length, 'URL en double dans le sitemap');
 });
 
 test('pages : le routeur client déclare les mêmes chemins que le serveur', () => {

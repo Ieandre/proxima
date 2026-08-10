@@ -14,9 +14,16 @@
  * autres.
  * ======================================================================== */
 
+import { cityFromPath } from './cities-seo';
+
 /** Pages autres que l'accueil. Ordre = ordre de la navigation inter-pages. */
 export const PAGE_PATHS = [
   '/en-savoir-plus',
+  '/chat-anonyme',
+  '/alternatives',
+  '/alternative-coco',
+  '/alternative-omegle',
+  '/villes',
   '/cgu',
   '/confidentialite',
   '/moderation',
@@ -35,6 +42,23 @@ function normalize(pathname: string): string {
 
 export function isPagePath(pathname: string): pathname is PagePath {
   return (PAGE_PATHS as readonly string[]).includes(normalize(pathname));
+}
+
+/**
+ * Pages par ville (`/tchat/nancy`). Elles ne sont pas énumérées ci-dessus : il y
+ * en a 67, dérivées de la base géographique par `server/city-pages.js`, et la
+ * liste des villes retenues n'a pas à être écrite deux fois. Le slug est validé
+ * contre les données générées — un `/tchat/nimportequoi` n'est pas une page de
+ * l'application, et doit rester la 404 que le serveur renvoie.
+ */
+export function isCityPath(pathname: string): boolean {
+  return cityFromPath(normalize(pathname)) !== null;
+}
+
+/** Vrai pour toute URL que le routage client sait afficher, `/` compris. */
+function isKnownPath(pathname: string): boolean {
+  const path = normalize(pathname);
+  return path === '/' || isPagePath(path) || isCityPath(path);
 }
 
 export function currentPath(): string {
@@ -116,7 +140,7 @@ export function installLinkDelegate(): () => void {
     if (url.origin !== window.location.origin) return;
 
     const path = normalize(url.pathname);
-    if (path !== '/' && !isPagePath(path)) return;
+    if (!isKnownPath(path)) return;
 
     event.preventDefault();
     navigate(`${path}${url.search}${url.hash}`);

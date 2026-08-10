@@ -1,23 +1,39 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useStore } from './store/useStore';
 import { connect } from './lib/socket';
 import { Onboarding } from './components/onboarding';
 import Chat from './components/chat/Chat.vue';
 import About from './components/pages/About.vue';
+import AlternativeCoco from './components/pages/AlternativeCoco.vue';
+import AlternativeOmegle from './components/pages/AlternativeOmegle.vue';
+import ChatAnonyme from './components/pages/ChatAnonyme.vue';
+import Alternatives from './components/pages/Alternatives.vue';
+import CityChat from './components/pages/CityChat.vue';
+import Villes from './components/pages/Villes.vue';
 import Legal from './components/pages/Legal.vue';
 import { isLegalPath } from './components/pages/legal-tabs';
+import { cityFromPath } from './lib/cities-seo';
 import Splash from './components/Splash.vue';
 import { installLinkDelegate } from './lib/router';
 import { useRoute } from './composables/route';
 import { armSound } from './lib/sound';
 
 const ABOUT_PATH = '/en-savoir-plus';
+const COCO_PATH = '/alternative-coco';
+const OMEGLE_PATH = '/alternative-omegle';
+const GUIDE_PATH = '/chat-anonyme';
+const ALTERNATIVES_PATH = '/alternatives';
+const CITIES_PATH = '/villes';
 
 const st = useStore();
 const { status, toast } = storeToRefs(st);
 const route = useRoute();
+
+// Page d'une ville (`/tchat/nancy`) : le slug est validé contre les données
+// générées, une URL inconnue retombe donc sur l'application.
+const city = computed(() => cityFromPath(route.value));
 
 onMounted(() => connect());
 
@@ -59,6 +75,12 @@ onUnmounted(() => {
 
 <template>
   <About v-if="route === ABOUT_PATH" />
+  <ChatAnonyme v-else-if="route === GUIDE_PATH" />
+  <Alternatives v-else-if="route === ALTERNATIVES_PATH" />
+  <AlternativeCoco v-else-if="route === COCO_PATH" />
+  <AlternativeOmegle v-else-if="route === OMEGLE_PATH" />
+  <Villes v-else-if="route === CITIES_PATH" />
+  <CityChat v-else-if="city" :city="city" />
   <Legal v-else-if="isLegalPath(route)" :path="route" />
   <template v-else>
     <Splash v-if="status === 'connecting'" />

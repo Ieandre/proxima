@@ -50,6 +50,22 @@ const inviteToken = new URLSearchParams(window.location.search).get('i');
 const host = ref<string | null>(null);
 const invited = invitedRoom || !!inviteToken;
 
+/**
+ * Ville pré-choisie par une page de ville (`/tchat/nancy`) : arriver par « tchat
+ * Nancy » et trouver le champ déjà rempli est le service que cette page promet.
+ *
+ * Consommée puis effacée : sans cela, quitter la session pour recommencer
+ * ailleurs réimposerait la ville de la page d'arrivée. On ne préremplit pas non
+ * plus quand on vient d'une invitation — le contexte du salon primerait.
+ */
+onMounted(() => {
+  const seed = st.citySeed;
+  if (!seed || invited) return;
+  city.value = seed.name;
+  cityChosen.value = seed;
+  st.clearCitySeed();
+});
+
 let cancelled = false;
 onMounted(() => {
   ageRef.value?.focus();
@@ -149,6 +165,15 @@ function onCityKey(e: KeyboardEvent) {
     choose(suggestions.value[Math.min(highlighted.value, suggestions.value.length - 1)]);
   }
 }
+
+// Département/canton et pays de la commune retenue. Assemblé plutôt qu'écrit en
+// gabarit : une commune pré-choisie depuis une page de ville n'a pas toujours de
+// subdivision distincte de son nom (Paris, Monaco), et « — , France » se verrait.
+const chosenSituation = computed(() => {
+  const chosen = cityChosen.value;
+  if (!chosen) return '';
+  return [chosen.admin, chosen.countryLabel].filter(Boolean).join(', ');
+});
 
 const ageNum = computed(() => Number(age.value));
 // La ville doit venir de la base : on le vérifie ici plutôt que de laisser le
@@ -428,7 +453,7 @@ const defaultItems = [
                 pouvoir vérifier d'un coup d'œil que c'est bien la sienne. -->
             <p v-if="cityChosen" class="-mt-2 mb-4 text-[12px] leading-snug text-muted">
               Vous entrerez depuis <strong class="font-medium text-ink">{{ cityChosen.name }}</strong
-              ><span class="text-faint"> — {{ cityChosen.admin }}, {{ cityChosen.countryLabel }}</span
+              ><span v-if="chosenSituation" class="text-faint"> — {{ chosenSituation }}</span
               >.
             </p>
             <p v-else-if="cityMiss" class="-mt-2 mb-4 text-[12px] leading-snug text-muted">

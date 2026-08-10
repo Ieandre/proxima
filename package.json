@@ -15,7 +15,8 @@
     "test:watch": "node --test --watch test/*.test.js",
     "test:e2e": "node --test $(find test-e2e -name '*.e2e.test.js')",
     "test:all": "npm test && npm run test:e2e",
-    "build:geo": "node scripts/build-geo.js"
+    "build:geo": "node scripts/build-geo.js",
+    "build:seo-cities": "node scripts/build-seo-cities.js"
   },
   "engines": {
     "node": ">=20"

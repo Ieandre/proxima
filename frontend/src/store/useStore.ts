@@ -1,6 +1,14 @@
 import { createPinia, defineStore } from 'pinia';
 import { chime } from '../lib/sound';
-import type { ActiveKey, JoinedRoom, Message, Person, RoomMember, RoomSummary } from '../lib/types';
+import type {
+  ActiveKey,
+  CitySuggestion,
+  JoinedRoom,
+  Message,
+  Person,
+  RoomMember,
+  RoomSummary,
+} from '../lib/types';
 
 /**
  * Instance Pinia unique de l'application, créée ici et non dans `main.ts` :
@@ -100,6 +108,19 @@ type State = {
   awaitingInvite: { pseudo: string } | null;
 
   toast: { text: string; tone: 'info' | 'warn' } | null;
+
+  /**
+   * Ville pré-choisie par une page de ville (`/tchat/nancy`), à retrouver dans le
+   * formulaire d'entrée. Elle passe par l'état et non par l'URL : une query
+   * (`/?ville=Nancy`) créerait autant de variantes indexables de l'accueil, donc
+   * autant de doublons à faire regrouper par les moteurs.
+   *
+   * C'est une suggestion complète et non un simple nom, parce que le formulaire
+   * distingue « ville saisie » de « ville reconnue dans la base » : seule la
+   * seconde permet d'entrer, et elle porte l'identifiant qui tranche entre
+   * homonymes (3 675 communes françaises en ont un).
+   */
+  citySeed: CitySuggestion | null;
 };
 
 // Fabrique et non objet partagé : chaque `reset()` doit repartir de records
@@ -128,6 +149,7 @@ const initial = (): State => ({
   invite: null,
   awaitingInvite: null,
   toast: null,
+  citySeed: null,
 });
 
 export const useStore = defineStore('proxima', {
@@ -145,6 +167,13 @@ export const useStore = defineStore('proxima', {
     },
     setLegal(legal: State['legal']) {
       this.legal = legal;
+    },
+    /** Ville venue d'une page de ville, consommée une seule fois par le formulaire. */
+    seedCity(city: State['citySeed']) {
+      this.citySeed = city;
+    },
+    clearCitySeed() {
+      this.citySeed = null;
     },
     /** Met à jour son propre profil sans toucher au statut (renommage en cours de session). */
     updateMe(me: Person) {

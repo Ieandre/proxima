@@ -33,6 +33,18 @@ import OnionAccess from './OnionAccess.vue';
         <span class="source-link__licence">AGPL-3.0</span>
       </a>
     </p>
+    <!-- Registre des pages de contenu, séparé des documents de conformité qui
+         suivent : ce ne sont pas des textes qu'on consulte par obligation. Elles
+         ont besoin de ce pied de page pour exister aux yeux d'un moteur — les
+         liens du DOM rendu sont les seuls qu'il suive, et c'est le seul bloc
+         présent sur tous les écrans. Sans lui, elles seraient orphelines. -->
+    <p class="mb-2">
+      <a href="/chat-anonyme" class="hover:text-blue">Chat anonyme</a> ·
+      <a href="/villes" class="hover:text-blue">Tchat par ville</a> ·
+      <a href="/alternatives" class="hover:text-blue">Alternatives</a> ·
+      <a href="/alternative-coco" class="hover:text-blue">Alternative à Coco</a> ·
+      <a href="/alternative-omegle" class="hover:text-blue">Alternative à Omegle</a>
+    </p>
     <p>
       <a href="/cgu" class="hover:text-blue">Conditions d'utilisation</a> ·
       <a href="/confidentialite" class="hover:text-blue">Confidentialité</a> ·

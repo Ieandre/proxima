@@ -13,8 +13,8 @@ const security = require('../server/security');
 const ROOT = path.join(__dirname, '..');
 const INDEX_HTML = path.join(ROOT, 'frontend', 'index.html');
 const ROBOTS = path.join(ROOT, 'frontend', 'public', 'robots.txt');
-const SITEMAP = path.join(ROOT, 'frontend', 'public', 'sitemap.xml');
 const PAGES_JS = path.join(ROOT, 'server', 'pages.js');
+const { sitemap } = require('../scripts/prerender-routes');
 
 /** Contenu brut du bloc <script type="application/ld+json"> de frontend/index.html. */
 function jsonLdContent() {
@@ -131,8 +131,12 @@ const EXTERNAL_HOSTS = new Set(['schema.org', 'www.sitemaps.org', 'www.w3.org', 
 // l'ancien).
 test('SEO : une seule origine publique dans index.html, robots.txt, sitemap.xml et pages.js', () => {
   const hosts = new Set();
-  for (const file of [INDEX_HTML, ROBOTS, SITEMAP, PAGES_JS]) {
-    const text = fs.readFileSync(file, 'utf8');
+  // Le sitemap est désormais produit au build (`scripts/prerender-routes.js`) :
+  // on inspecte sa sortie, pas un fichier — il n'en existe plus dans le dépôt.
+  const sources = [INDEX_HTML, ROBOTS, PAGES_JS].map((file) => fs.readFileSync(file, 'utf8'));
+  sources.push(sitemap('2026-01-01'));
+
+  for (const text of sources) {
     for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
       const host = m[1].toLowerCase();
       if (!EXTERNAL_HOSTS.has(host)) hosts.add(host);

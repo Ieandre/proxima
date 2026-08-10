@@ -1,5 +1,6 @@
-# Proxima — chat anonyme éphémère. Le service tient sur une page unique :
-# seule « / » porte du contenu indexable.
+# Proxima — chat anonyme éphémère. Tout le site est explorable sauf les trois
+# chemins ci-dessous ; les pages indexables sont déclarées dans `server/pages.js`
+# et `server/city-pages.js`, et énumérées par un sitemap généré au build.
 #
 # Note : les « Allow: » qui listaient ici les images étaient sans effet — une
 # directive Allow ne sert qu'à rouvrir une exception à l'intérieur d'un Disallow,
