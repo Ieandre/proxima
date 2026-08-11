@@ -50,6 +50,28 @@ module.exports = {
     refreshMs: num(process.env.METRICS_REFRESH_MS, 5000),
   },
 
+  /**
+   * Audience et usage dans le temps (`domain/analytics.js`). Mesure maison, côté
+   * serveur : ni script tiers, ni cookie, ni identifiant de visiteur — c'est ce qui
+   * permet à la page de confidentialité de rester vraie mot pour mot.
+   */
+  analytics: {
+    // `ANALYTICS=0` coupe toute la collecte (les lectures rendent alors des zéros).
+    enabled: process.env.ANALYTICS !== '0',
+    // Fenêtre de conservation. Un mois : de quoi voir une tendance de référencement
+    // sans rien accumuler (RG-01 vaut aussi pour les statistiques).
+    retentionDays: num(process.env.ANALYTICS_RETENTION_DAYS, 30),
+    // Pas d'échantillonnage de l'affluence. Il fixe aussi le nombre de créneaux par
+    // jour (86 400 000 / pas), donc la taille bornée du hash journalier.
+    sampleMs: num(process.env.ANALYTICS_SAMPLE_MS, 5 * 60 * 1000),
+    // Fuseau de découpe des journées : celui de l'exploitant, pas UTC — un tableau
+    // de bord dont la journée commence à 2 h du matin ne se lit pas.
+    timeZone: process.env.ANALYTICS_TZ || 'Europe/Paris',
+    // Plafond de domaines référents distincts par jour. Le champ est alimenté par un
+    // tiers (l'en-tête `Referer`) : sans plafond, sa cardinalité ne serait pas bornée.
+    maxReferrerHosts: num(process.env.ANALYTICS_MAX_REFERRERS, 200),
+  },
+
   rooms: {
     // Plafond de membres d'un salon à MOT DE PASSE : borne la diffusion d'un espace de
     // groupe non modérable. Ne s'applique qu'à ce régime — un salon en régime de groupe

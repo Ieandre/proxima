@@ -13,6 +13,7 @@ const { PREFIX: CITY_PREFIX, CITY_FILE_BY_PATH } = require('./city-pages');
 const { connectRedis, pubClient, subClient } = require('./infra/redis');
 const cities = require('./domain/cities');
 const security = require('./security');
+const audience = require('./audience');
 const { registerHandlers } = require('./handlers');
 const { registerAdminNamespace } = require('./admin');
 const permanentRooms = require('./domain/permanent-rooms');
@@ -151,6 +152,11 @@ async function main() {
   app.disable('x-powered-by');
   app.use(security.securityHeaders);
 
+  // Comptage d'audience (`audience.js`) : côté serveur, sans script ni cookie.
+  // Monté ici, donc avant tout ce qui répond — mais il ne retient que les routes
+  // déclarées, ce qui laisse hors du compte l'API, les assets et `/operator`.
+  app.use(audience.pageViews());
+
   // Autocomplétion de communes (base embarquée, hors-ligne). Dix propositions et
   // non huit : les homonymes vont jusqu'à douze communes (« Sainte-Colombe »), et
   // rogner la liste à huit cachait la bonne à ceux qui en avaient le plus besoin.
@@ -232,7 +238,9 @@ async function main() {
       res.sendFile(fs.existsSync(file) ? file : indexHtml);
     });
 
-    app.use(notFound);
+    // Le comptage précède la réponse : une 404 qui grimpe trahit un lien externe
+    // cassé ou une page retirée de la sélection sans redirection.
+    app.use(audience.notFound(), notFound);
   } else {
     app.get('/', (_req, res) =>
       res
@@ -260,6 +268,10 @@ async function main() {
 
   registerHandlers(io);
   registerAdminNamespace(io); // namespace /admin (inerte si OPERATOR_SECRET absent)
+
+  // Relevé périodique de l'affluence, indépendant de la console : la courbe ne
+  // doit pas se creuser aux heures où personne ne la regarde.
+  audience.startSampler();
 
   server.listen(config.port, () => {
     console.log(`[server] écoute sur http://localhost:${config.port} (rayon ${config.radiusKm} km)`);

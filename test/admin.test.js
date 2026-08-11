@@ -78,10 +78,42 @@ describe('connexion à /admin', () => {
     await assert.rejects(() => io.of('/admin').connect({ auth: { token: 'mauvais' } }), /unauthorized/);
   });
 
-  test('à l’ouverture, l’opérateur reçoit signalements, métriques et salons', async () => {
+  test('à l’ouverture, l’opérateur reçoit signalements, métriques, salons et audience', async () => {
     assert.ok(op.last('admin:snapshot'), 'signalements');
     assert.ok(op.last('admin:metrics'), 'métriques');
     assert.ok(Array.isArray(op.last('admin:rooms').rooms), 'salons');
+    assert.ok(Array.isArray(op.last('admin:analytics').daily), 'audience');
+  });
+});
+
+// ===========================================================================
+// AUDIENCE — statistiques agrégées (cf. `domain/analytics.js`)
+// ===========================================================================
+describe('admin:analytics', () => {
+  test('rend la fenêtre demandée, avec un jour par entrée', async () => {
+    const res = await op.rpc('admin:analytics', { days: 3 });
+    assert.equal(res.ok, true);
+    assert.equal(res.analytics.window, 3);
+    assert.equal(res.analytics.daily.length, 3);
+  });
+
+  test('une fenêtre absente ou aberrante retombe sur une valeur exploitable', async () => {
+    const parDefaut = await op.rpc('admin:analytics', {});
+    assert.equal(parDefaut.analytics.window, 7);
+    // Au-delà de la rétention il n'y a rien à lire : la fenêtre y est ramenée.
+    const trop = await op.rpc('admin:analytics', { days: 9999 });
+    assert.equal(trop.analytics.window, trop.analytics.retentionDays);
+  });
+
+  test('un message diffusé avance le compteur du jour, sans rien dire de son contenu', async () => {
+    const { sock } = await joinAs();
+    const { room } = await sock.rpc('room:create', { name: 'Le kiosque', type: 'public' });
+    await sock.deliver('room:message', { roomId: room.id, env: { c: 'chiffré', n: 'nonce' } });
+    // Le comptage est détaché de la diffusion : on laisse la micro-tâche s'exécuter.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const res = await op.rpc('admin:analytics', { days: 1 });
+    assert.equal(res.analytics.totals.messages, 1);
   });
 });
 

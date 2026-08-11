@@ -66,6 +66,11 @@
     socket.on('admin:rooms', function (payload) {
       setRooms(payload && payload.rooms ? payload.rooms : []);
     });
+
+    // Envoyée une fois à l'ouverture. Ensuite elle ne vient que sur demande : la
+    // synthèse balaye toute la fenêtre côté serveur pour un chiffre qui ne bouge
+    // qu'à l'échelle de la journée.
+    socket.on('admin:analytics', function (payload) { renderAnalytics(payload); });
   }
 
   // --- Tableau de bord (métriques agrégées) ----------------------------------
@@ -113,6 +118,339 @@
     setText('mUptime', 'Uptime : ' + fmtUptime(m.uptimeSec));
 
     setText('metricsTs', 'mis à jour à ' + fmtTs(m.ts));
+  }
+
+  // --- Audience ---------------------------------------------------------------
+  //
+  // Le panneau tient sur un seul objet : la BANDE DES JOURS, visites vers le haut
+  // et messages vers le bas, sur un axe partagé. Tout le reste (classements,
+  // affluence) est en appui. Les chiffres ne sont écrits qu'à un endroit — la
+  // ligne de lecture — qui bascule du total de la fenêtre au jour survolé.
+  //
+  // Deux échelles, et c'est assumé : au-dessus de l'axe, visites et chargements
+  // partagent la leur (un chargement contient toujours au moins une visite, les
+  // comparer a un sens) ; en dessous, les messages ont la leur, parce qu'ils ne se
+  // comptent pas dans la même unité. La légende le dit.
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // Repère de la bande, en unités de viewBox. La hauteur en pixels est figée par
+  // la CSS : `preserveAspectRatio="none"` étire le dessin en largeur seulement.
+  var TAPE = { w: 1000, up: 118, axis: 2, down: 44 };
+  var CURVE = { w: 1000, h: 100 };
+
+  var analytics = null; // dernière synthèse reçue
+  var analyticsDays = 7; // fenêtre affichée
+
+  function svgEl(tag, attrs) {
+    var node = document.createElementNS(SVG_NS, tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) { node.setAttribute(k, String(attrs[k])); });
+    }
+    return node;
+  }
+
+  var NUM = new Intl.NumberFormat('fr-FR');
+  function fmtNum(n) { return NUM.format(Number(n) || 0); }
+
+  /**
+   * `2026-08-11` -> Date. Le fuseau UTC est imposé à la LECTURE comme à
+   * l'écriture : `new Date('2026-08-11')` place la journée à minuit UTC, et la
+   * reformater en heure locale la ferait basculer d'un jour à l'ouest de Greenwich.
+   */
+  function dayDate(day) { return new Date(day + 'T00:00:00Z'); }
+
+  var DAY_SHORT = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', weekday: 'short' });
+  var DAY_NUM = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: 'numeric' });
+  // Le mois vient avec le jour sur les fenêtres longues : une fenêtre de trente
+  // jours enjambe un changement de mois, et « 2 » après « 28 » ne se situe plus.
+  var DAY_DATE = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: 'numeric', month: 'numeric' });
+  var DAY_LONG = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
+
+  function maxOf(list, pick) {
+    return list.reduce(function (max, item) { return Math.max(max, pick(item) || 0); }, 0);
+  }
+
+  /** Une ligne de la ligne de lecture : pastille de couleur, nombre, libellé. */
+  function readoutStat(kind, value, label) {
+    var stat = el('span', 'readout__stat readout__stat--' + kind);
+    stat.appendChild(el('b', null, fmtNum(value)));
+    stat.appendChild(document.createTextNode(label));
+    return stat;
+  }
+
+  /**
+   * Écrit la ligne de lecture. `day` absent = le total de la fenêtre, qui est
+   * l'état de repos : on revient toujours à lui quand le curseur quitte la bande.
+   */
+  function setReadout(day) {
+    var box = $('readout');
+    if (!box || !analytics) return;
+    box.textContent = '';
+
+    var when;
+    var stats;
+    if (day) {
+      when = DAY_LONG.format(dayDate(day.day));
+      stats = day;
+    } else {
+      when = analytics.window + ' derniers jours';
+      stats = analytics.totals;
+    }
+
+    box.appendChild(el('span', 'readout__when', when));
+    box.appendChild(readoutStat('visits', stats.visits, 'visites'));
+    box.appendChild(readoutStat('views', stats.views, 'chargements'));
+    box.appendChild(readoutStat('messages', stats.messages, 'messages'));
+  }
+
+  /**
+   * La bande des jours. Une colonne par jour : au-dessus de l'axe le chargement en
+   * fond et la visite par-dessus (imbriquées, même échelle), en dessous le message.
+   *
+   * Une valeur non nulle ne descend jamais sous deux unités de haut : sinon un jour
+   * à une visite se dessine à zéro pixel, et l'écran dit « rien » là où il s'est
+   * passé quelque chose.
+   */
+  function renderTape() {
+    var svg = $('tape');
+    if (!svg) return;
+    svg.textContent = '';
+
+    var days = analytics.daily;
+    var h = TAPE.up + TAPE.axis + TAPE.down;
+    svg.setAttribute('viewBox', '0 0 ' + TAPE.w + ' ' + h);
+
+    var maxUp = Math.max(1, maxOf(days, function (d) { return d.views; }));
+    var maxDown = Math.max(1, maxOf(days, function (d) { return d.messages; }));
+    var colW = TAPE.w / days.length;
+    // Le plafond n'existe que pour les fenêtres courtes : à sept jours, une barre
+    // proportionnelle à la colonne ferait des pavés de 90 px où la hauteur ne se
+    // compare plus. Il ne mord jamais à trente jours, où la colonne est étroite.
+    var barW = Math.max(2, Math.min(colW * 0.62, 68));
+
+    var scale = function (value, max, band) {
+      if (!value) return 0;
+      return Math.max(2, (value / max) * band);
+    };
+
+    days.forEach(function (d, i) {
+      var cx = i * colW + colW / 2;
+      var x = cx - barW / 2;
+      var group = svgEl('g', {
+        class: 'tape__col',
+        tabindex: '0',
+        role: 'img',
+        'aria-label':
+          DAY_LONG.format(dayDate(d.day)) + ' : ' + fmtNum(d.visits) + ' visites, ' +
+          fmtNum(d.views) + ' chargements, ' + fmtNum(d.messages) + ' messages',
+      });
+
+      var hViews = scale(d.views, maxUp, TAPE.up);
+      if (hViews) {
+        group.appendChild(svgEl('rect', {
+          x: x, y: TAPE.up - hViews, width: barW, height: hViews, rx: 2, fill: '#3f587c',
+        }));
+      }
+      var hVisits = scale(d.visits, maxUp, TAPE.up);
+      if (hVisits) {
+        group.appendChild(svgEl('rect', {
+          x: x, y: TAPE.up - hVisits, width: barW, height: hVisits, rx: 2, fill: '#8ab4f8',
+        }));
+      }
+      var hMsg = scale(d.messages, maxDown, TAPE.down);
+      if (hMsg) {
+        group.appendChild(svgEl('rect', {
+          x: x, y: TAPE.up + TAPE.axis, width: barW, height: hMsg, rx: 2, fill: '#6ee7a8',
+        }));
+      }
+
+      // Cible de survol sur toute la hauteur : viser une barre de deux pixels
+      // relèverait de l'adresse, pas de la lecture.
+      group.appendChild(svgEl('rect', { class: 'tape__hit', x: i * colW, y: 0, width: colW, height: h }));
+
+      var show = function () { setReadout(d); };
+      var clear = function () { setReadout(null); };
+      group.addEventListener('mouseenter', show);
+      group.addEventListener('mouseleave', clear);
+      group.addEventListener('focus', show);
+      group.addEventListener('blur', clear);
+
+      svg.appendChild(group);
+    });
+
+    // L'axe passe en dernier : il doit rester visible par-dessus les barres.
+    svg.appendChild(svgEl('rect', { x: 0, y: TAPE.up, width: TAPE.w, height: TAPE.axis, fill: '#2c3440' }));
+
+    renderTapeAxis(days);
+  }
+
+  /**
+   * Étiquettes des jours. À sept jours on nomme chaque jour ; à trente, une
+   * étiquette sur cinq — au-delà, elles se chevauchent et plus rien ne se lit.
+   */
+  function renderTapeAxis(days) {
+    var axis = $('tapeAxis');
+    if (!axis) return;
+    axis.textContent = '';
+    axis.style.gridTemplateColumns = 'repeat(' + days.length + ', 1fr)';
+
+    var step = days.length > 10 ? Math.ceil(days.length / 6) : 1;
+    days.forEach(function (d, i) {
+      var isLast = i === days.length - 1;
+      var show = isLast || i % step === 0;
+      var date = dayDate(d.day);
+      var label = '';
+      if (show) label = days.length > 10 ? DAY_DATE.format(date) : DAY_SHORT.format(date);
+      axis.appendChild(el('span', null, label));
+    });
+  }
+
+  /** Un classement : le fond de la ligne porte la proportion, pas une barre à part. */
+  function renderRanking(containerId, entries, emptyText, mono) {
+    var box = $(containerId);
+    if (!box) return;
+    box.textContent = '';
+
+    if (!entries.length) {
+      box.appendChild(el('div', 'muted', emptyText));
+      return;
+    }
+
+    var max = maxOf(entries, function (e) { return e.value; }) || 1;
+    entries.forEach(function (entry) {
+      var row = el('div', 'rank');
+      var fill = el('div', 'rank__fill');
+      fill.style.width = Math.max(2, (entry.value / max) * 100) + '%';
+      row.appendChild(fill);
+
+      var label = el('div', 'rank__label');
+      if (mono) label.appendChild(el('code', null, entry.key));
+      else label.textContent = entry.key;
+      label.title = entry.key; // le nom tronqué reste lisible au survol
+      row.appendChild(label);
+
+      row.appendChild(el('div', 'rank__value', fmtNum(entry.value)));
+      box.appendChild(row);
+    });
+  }
+
+  /**
+   * Courbe d'affluence des dernières journées. Un TROU dans la série (serveur
+   * arrêté, échantillon manqué) coupe le tracé au lieu de le faire plonger à
+   * zéro : une interruption de mesure n'est pas une absence de monde.
+   */
+  function renderCurve() {
+    var svg = $('curve');
+    if (!svg) return;
+    svg.textContent = '';
+    svg.setAttribute('viewBox', '0 0 ' + CURVE.w + ' ' + CURVE.h);
+
+    var series = analytics.series || [];
+    var perDay = analytics.slotsPerDay || 288;
+    var total = Math.max(1, series.length * perDay);
+
+    var peak = 0;
+    series.forEach(function (d) {
+      d.points.forEach(function (p) { peak = Math.max(peak, p.sessions); });
+    });
+    var scaleY = Math.max(1, peak);
+
+    setText('peakLabel', peak ? 'pic ' + fmtNum(peak) + (peak > 1 ? ' sessions' : ' session') : 'aucun relevé');
+
+    // Repères des six heures : ils donnent l'échelle du temps sans étiquette.
+    for (var d = 0; d < series.length; d += 1) {
+      for (var q = 0; q < 4; q += 1) {
+        var tickX = ((d * perDay + (q * perDay) / 4) / total) * CURVE.w;
+        svg.appendChild(svgEl('line', {
+          x1: tickX, y1: 0, x2: tickX, y2: CURVE.h,
+          stroke: q === 0 ? '#2c3440' : '#1c222c', 'stroke-width': 1,
+        }));
+      }
+    }
+
+    var xOf = function (dayIndex, slot) { return ((dayIndex * perDay + slot) / total) * CURVE.w; };
+    var yOf = function (sessions) { return CURVE.h - (sessions / scaleY) * (CURVE.h - 6); };
+
+    // Segments continus : on coupe dès qu'un créneau manque.
+    var segments = [];
+    var current = null;
+    series.forEach(function (day, dayIndex) {
+      var previousSlot = null;
+      day.points.forEach(function (point) {
+        var broken = previousSlot === null || point.slot !== previousSlot + 1;
+        if (broken && current) segments.push(current);
+        if (broken) current = [];
+        current.push({ x: xOf(dayIndex, point.slot), y: yOf(point.sessions) });
+        previousSlot = point.slot;
+      });
+      // Une journée s'achève : la suivante ne prolonge pas son dernier créneau.
+      if (current) segments.push(current);
+      current = null;
+    });
+
+    // Un relevé ISOLÉ n'a pas de tracé — un point n'est pas une ligne. Il compte
+    // pourtant : c'est ce qu'on voit le lendemain d'une mise en ligne, et une
+    // courbe vide au-dessus d'un « pic : 1 session » se lirait comme une panne.
+    segments.filter(function (points) { return points.length === 1; }).forEach(function (points) {
+      svg.appendChild(svgEl('circle', { cx: points[0].x.toFixed(1), cy: points[0].y.toFixed(1), r: 2, fill: '#c4b5fd' }));
+    });
+
+    segments.filter(function (points) { return points.length > 1; }).forEach(function (points) {
+      var line = points.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+      }).join(' ');
+
+      var area = line + ' L' + points[points.length - 1].x.toFixed(1) + ' ' + CURVE.h + ' L' + points[0].x.toFixed(1) + ' ' + CURVE.h + ' Z';
+      svg.appendChild(svgEl('path', { d: area, fill: 'rgba(196, 181, 253, 0.16)' }));
+      svg.appendChild(svgEl('path', {
+        d: line, fill: 'none', stroke: '#c4b5fd', 'stroke-width': 1.5,
+        'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke',
+      }));
+    });
+
+    var axis = $('curveAxis');
+    if (axis) {
+      axis.textContent = '';
+      axis.style.gridTemplateColumns = 'repeat(' + Math.max(1, series.length) + ', 1fr)';
+      series.forEach(function (day) {
+        var date = dayDate(day.day);
+        axis.appendChild(el('span', null, DAY_SHORT.format(date) + ' ' + DAY_NUM.format(date)));
+      });
+    }
+  }
+
+  function renderAnalytics(payload) {
+    if (!payload) return;
+    analytics = payload;
+
+    // Rien de mesuré sur la fenêtre : le dire, plutôt que dessiner des axes vides
+    // qu'on prendrait pour une audience nulle.
+    var hasData = payload.totals.views > 0 || payload.totals.messages > 0 || payload.totals.peakSessions > 0;
+    $('audienceEmpty').hidden = hasData;
+    $('audienceBody').hidden = !hasData;
+    if (!hasData) return;
+
+    setReadout(null);
+    renderTape();
+    renderRanking('topPages', payload.pages, 'Aucune page chargée sur la fenêtre.', true);
+    renderRanking('topReferrers', payload.referrers, 'Aucune arrivée enregistrée.', false);
+    renderCurve();
+
+    var foot = payload.retentionDays + ' jours conservés, puis effacés' +
+      (payload.totals.notFound ? ' · ' + fmtNum(payload.totals.notFound) + ' requêtes tombées sur une 404' : '');
+    setText('audienceFoot', foot);
+  }
+
+  function loadAnalytics(days) {
+    if (!socket) return;
+    analyticsDays = days || analyticsDays;
+    $('range7').classList.toggle('is-on', analyticsDays === 7);
+    $('range30').classList.toggle('is-on', analyticsDays === 30);
+    socket.emit('admin:analytics', { days: analyticsDays }, function (res) {
+      if (res && res.ok) renderAnalytics(res.analytics);
+      else showToast(res && res.error ? res.error : 'Statistiques indisponibles.', false);
+    });
   }
 
   function emit(event, data) { if (socket) socket.emit(event, data); }
@@ -447,6 +785,10 @@
         if (res && res.ok) { incidentId = null; setFrozen(false); }
       });
     };
+
+    $('range7').onclick = function () { loadAnalytics(7); };
+    $('range30').onclick = function () { loadAnalytics(30); };
+    $('audienceRefresh').onclick = function () { loadAnalytics(); };
 
     var createBtn = $('createRoom');
     createBtn.onclick = function () {

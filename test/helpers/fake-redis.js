@@ -2,8 +2,8 @@
 
 /**
  * Fake Redis en mémoire pour les tests — implémente uniquement les commandes
- * utilisées par le serveur (hash, zset, set, string, GEO). Aucune dépendance
- * réseau ni npm : la suite tourne avec le seul runner natif `node:test`.
+ * utilisées par le serveur (hash, zset, set, string, GEO, HyperLogLog). Aucune
+ * dépendance réseau ni npm : la suite tourne avec le seul runner natif `node:test`.
  *
  * Fidélité volontairement limitée à ce dont le code a besoin :
  *  - les valeurs de hash sont stockées en chaînes (comme node-redis) ;
@@ -38,6 +38,7 @@ class FakeRedis {
     this.sets = new Map(); // key -> Set(string)
     this.strings = new Map(); // key -> string
     this.geos = new Map(); // key -> Map(member -> { lon, lat })
+    this.hlls = new Map(); // key -> Set(string) — tient lieu de HyperLogLog
   }
 
   /** Une clé est « présente » si l'un des espaces la connaît (pour EXPIRE/DEL). */
@@ -47,7 +48,8 @@ class FakeRedis {
       this.zsets.has(key) ||
       this.sets.has(key) ||
       this.strings.has(key) ||
-      this.geos.has(key)
+      this.geos.has(key) ||
+      this.hlls.has(key)
     );
   }
 
@@ -99,6 +101,33 @@ class FakeRedis {
     return this.__exists(key) ? 1 : 0;
   }
 
+  // ---- HyperLogLog -------------------------------------------------------
+  // Le vrai Redis range une ESQUISSE probabiliste dont on ne peut pas ressortir
+  // les membres — c'est précisément ce qui fait de `PFADD` le bon outil pour
+  // compter des visites sans retenir personne (cf. `domain/analytics.js`). Ici,
+  // un Set exact : le test veut un dénombrement déterministe, pas l'erreur de
+  // 0,81 % de l'algorithme. La différence ne porte que sur la précision.
+  async pfAdd(key, elements) {
+    let s = this.hlls.get(key);
+    if (!s) {
+      s = new Set();
+      this.hlls.set(key, s);
+    }
+    const before = s.size;
+    for (const el of [].concat(elements)) s.add(String(el));
+    return s.size > before ? 1 : 0;
+  }
+
+  async pfCount(key) {
+    const keys = [].concat(key);
+    const union = new Set();
+    for (const k of keys) {
+      const s = this.hlls.get(k);
+      if (s) for (const el of s) union.add(el);
+    }
+    return union.size;
+  }
+
   async del(...keys) {
     const flat = keys.flat();
     let removed = 0;
@@ -109,6 +138,7 @@ class FakeRedis {
       this.sets.delete(key);
       this.strings.delete(key);
       this.geos.delete(key);
+      this.hlls.delete(key);
     }
     return removed;
   }
@@ -146,6 +176,11 @@ class FakeRedis {
     const h = this.hashes.get(key);
     if (!h) return {};
     return Object.fromEntries(h.entries());
+  }
+
+  async hLen(key) {
+    const h = this.hashes.get(key);
+    return h ? h.size : 0;
   }
 
   /**

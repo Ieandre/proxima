@@ -22,7 +22,9 @@
       }
       header h1 { font-size: 16px; margin: 0; font-weight: 600; }
       .tag { font: 11px/1 monospace; padding: 3px 7px; border-radius: 6px; background: #232a34; color: #9aa4b2; }
-      main { max-width: 880px; margin: 0 auto; padding: 20px; }
+      /* La colonne s'est élargie avec la bande d'audience : trente jours dans
+         880 px donnent des barres de 25 px, où la tendance ne se voit plus. */
+      main { max-width: 1120px; margin: 0 auto; padding: 20px; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       input, button {
         font: inherit;
@@ -120,6 +122,130 @@
       .counts { margin-top: 12px; font: 13px/1.7 monospace; color: #9aa4b2; }
       .counts b { color: #e6e9ef; }
       [hidden] { display: none !important; }
+
+      /* ===================================================================
+         AUDIENCE
+
+         Un seul objet porte le panneau : la bande des jours, visites vers le
+         HAUT et messages vers le BAS, sur un axe des jours partagé. C'est la
+         seule disposition qui réponde à la question réelle — le monde qui
+         vient se met-il à parler ? Deux graphiques côte à côte laisseraient
+         ce rapprochement à faire de tête.
+
+         Corollaire : pas de cartouches de chiffres au-dessus. Ils
+         répéteraient ce que la bande montre déjà ; les nombres se lisent sur
+         la ligne de lecture, qui suit le survol.
+
+         Aucune couleur nouvelle : bleu pour l'audience, vert pour les
+         messages, violet pour l'affluence — le vocabulaire de la console.
+         Le rouge et l'ambre restent ce qu'ils sont ailleurs, des états.
+         =================================================================== */
+      .seg { display: flex; gap: 0; border: 1px solid #2c3440; border-radius: 8px; overflow: hidden; }
+      .seg__btn {
+        background: transparent;
+        color: #9aa4b2;
+        border: none;
+        border-radius: 0;
+        padding: 6px 14px;
+        font-size: 13px;
+      }
+      .seg__btn + .seg__btn { border-left: 1px solid #2c3440; }
+      .seg__btn:hover { color: #e6e9ef; background: #1a212b; }
+      .seg__btn.is-on { background: #1c2b3a; color: #8ab4f8; }
+
+      /* Ligne de lecture : le seul endroit où les chiffres de la fenêtre
+         s'écrivent. Hauteur figée — elle change de contenu au survol, et un
+         panneau qui se réajuste sous le curseur se lit mal. */
+      .readout {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px 18px;
+        min-height: 34px;
+        margin: 14px 0 10px;
+        font-variant-numeric: tabular-nums;
+      }
+      .readout__when { font-weight: 600; letter-spacing: -0.01em; }
+      /* La couleur de série vit dans la pastille, jamais dans le texte : le bleu
+         sombre des chargements est fait pour tenir face à un aplat, pas pour être
+         lu en 13 px. Le libellé reste donc au gris de la console. */
+      .readout__stat { font-size: 13px; color: #9aa4b2; }
+      .readout__stat b { color: #e6e9ef; font-weight: 600; font-size: 15px; margin-right: 4px; }
+      .readout__stat::before {
+        content: '';
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-right: 7px;
+        vertical-align: baseline;
+        background: #6b7480;
+      }
+      .readout__stat--visits::before { background: #8ab4f8; }
+      .readout__stat--views::before { background: #3f587c; }
+      .readout__stat--messages::before { background: #6ee7a8; }
+
+      /* `preserveAspectRatio="none"` + hauteur fixe : la bande garde la même
+         hauteur à toutes les largeurs. Une barre reste une barre sous une
+         mise à l'échelle non uniforme — ce n'est vrai que parce qu'elles sont
+         alignées sur les axes. */
+      .tape { display: block; width: 100%; height: 172px; }
+      .tape__col { cursor: default; }
+      .tape__col:focus { outline: none; }
+      .tape__hit { fill: transparent; }
+      .tape__col:hover .tape__hit, .tape__col:focus-visible .tape__hit { fill: rgba(230, 233, 239, 0.05); }
+
+      /* Étiquettes des jours en HTML et non dans le SVG : dans le dessin mis à
+         l'échelle, elles rétréciraient avec la fenêtre jusqu'à l'illisible. */
+      .axis { display: grid; gap: 0; margin-top: 6px; }
+      .axis span {
+        font-size: 11px;
+        color: #6b7480;
+        text-align: center;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .axis--between span { text-align: left; padding-left: 2px; }
+
+      .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 12px; color: #6b7480; }
+      .legend span::before {
+        content: '';
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        margin-right: 6px;
+        background: currentColor;
+      }
+      .legend .k-visits { color: #8ab4f8; }
+      .legend .k-views { color: #3f587c; }
+      .legend .k-messages { color: #6ee7a8; }
+
+      /* Deux classements côte à côte tant que la place le permet. */
+      .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+
+      /* Une ligne classée porte sa propre barre en fond plutôt qu'une barre
+         séparée dessous : à quinze lignes, la seconde forme double la hauteur
+         du bloc pour la même information. */
+      .rank { position: relative; display: flex; align-items: baseline; gap: 10px; padding: 7px 9px; border-radius: 6px; }
+      .rank + .rank { margin-top: 2px; }
+      .rank__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: rgba(138, 180, 248, 0.16); }
+      .rank__label {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .rank__value { position: relative; font-size: 13px; color: #9aa4b2; font-variant-numeric: tabular-nums; }
+      .rank__label code { font: 12px/1 monospace; color: #8ab4f8; }
+
+      .curve { display: block; width: 100%; height: 108px; }
+      .subhead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+      .subhead h3 { margin: 0; font-size: 13px; font-weight: 600; color: #e6e9ef; }
+      .subhead .muted { font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>
@@ -165,6 +291,75 @@
             <span><span class="dot" id="dRedis"></span><span id="mRedis">Redis : —</span></span>
             <span><span class="dot" id="dSalt"></span><span id="mSalt">Sel IP : —</span></span>
             <span id="mUptime">Uptime : —</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="dash-head">
+            <strong>Audience</strong>
+            <div class="row">
+              <div class="seg" role="group" aria-label="Fenêtre d'observation">
+                <button id="range7" class="seg__btn is-on" type="button">7 jours</button>
+                <button id="range30" class="seg__btn" type="button">30 jours</button>
+              </div>
+              <button id="audienceRefresh" class="ghost" type="button">Actualiser</button>
+            </div>
+          </div>
+          <p class="muted">
+            Comptée sur le serveur : aucun script, aucun cookie, aucun identifiant de visiteur. Seules les pages
+            publiques entrent dans le compte, les robots d'indexation en sont écartés. Une « visite » regroupe ce
+            qu'une même adresse fait en cinq minutes — quelqu'un qui reste une heure compte donc plusieurs fois.
+          </p>
+
+          <div id="audienceEmpty" class="empty" hidden>
+            Aucune donnée sur cette fenêtre. Le comptage part du premier déploiement de cette version&nbsp;: la
+            première journée complète apparaîtra demain.
+          </div>
+
+          <div id="audienceBody" hidden>
+            <div class="readout" id="readout" aria-live="polite"></div>
+            <svg
+              class="tape"
+              id="tape"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label="Visites par jour vers le haut, messages vers le bas, sur un axe des jours partagé"
+            ></svg>
+            <div class="axis" id="tapeAxis"></div>
+            <div class="legend">
+              <span class="k-visits">visites</span>
+              <span class="k-views">chargements de page</span>
+              <span class="k-messages">messages, sous l'axe — échelle distincte</span>
+            </div>
+
+            <div class="split" style="margin-top: 22px">
+              <div>
+                <div class="subhead">
+                  <h3>Pages d'entrée</h3>
+                  <span class="muted">chargements</span>
+                </div>
+                <div id="topPages"></div>
+              </div>
+              <div>
+                <div class="subhead">
+                  <h3>Sources</h3>
+                  <span class="muted">arrivées</span>
+                </div>
+                <div id="topReferrers"></div>
+              </div>
+            </div>
+
+            <div style="margin-top: 22px">
+              <div class="subhead">
+                <h3>Affluence</h3>
+                <span class="muted" id="peakLabel"></span>
+              </div>
+              <svg class="curve" id="curve" preserveAspectRatio="none" role="img"
+                   aria-label="Sessions présentes au fil des dernières journées"></svg>
+              <div class="axis axis--between" id="curveAxis"></div>
+            </div>
+
+            <p class="muted" id="audienceFoot" style="margin-bottom: 0"></p>
           </div>
         </div>
 

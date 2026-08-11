@@ -25,6 +25,10 @@ const sessions = require('./sessions');
  *  - `rl:*` et `metrics:onion:*` — anti-spam et compteurs de dimensionnement. Remettre
  *    les seaux à zéro ouvrirait une fenêtre de flood juste après le geste ; remettre
  *    les compteurs à zéro fausserait ce qui sert à régler la plateforme.
+ *  - `stats:*` (audience et usage, cf. `domain/analytics.js`) — ce ne sont pas des
+ *    conversations mais l'historique du site, et la remise à zéro sert à repartir
+ *    d'une plateforme vide, pas à effacer le mois écoulé. Ils expirent seuls
+ *    (`analytics.retentionDays`), ce qui suffit à ce que rien ne s'accumule.
  *
  * La portée est celle de Redis : GLOBALE, donc toutes les instances à la fois.
  */

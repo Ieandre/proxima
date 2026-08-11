@@ -84,6 +84,16 @@ defineProps<{ contact: string }>();
         Le Service n'utilise <strong>aucun traceur publicitaire ni analytique tiers</strong>. Seul un jeton de session technique,
         nécessaire au fonctionnement, est utilisé.
       </p>
+      <p class="mt-3">
+        L'éditeur mesure la fréquentation du site, mais <strong>sur son propre serveur</strong>&nbsp;: aucun script de
+        mesure n'est chargé dans votre navigateur, aucun cookie n'est déposé à cette fin, et rien ne permet de vous
+        reconnaître d'une visite à l'autre. Ne sont comptés que des <strong>totaux</strong>&nbsp;: le nombre de
+        chargements de chaque page publique, le domaine d'où proviennent les arrivées (jamais l'adresse complète de
+        la page d'origine), le nombre de messages relayés et le nombre de personnes connectées. Le décompte des
+        visites repose sur la même empreinte d'adresse IP <strong>salée et renouvelée toutes les cinq minutes</strong>
+        que l'anti-spam, agrégée dans une structure dont les valeurs ne peuvent pas être retrouvées&nbsp;: elle
+        permet de compter, pas d'identifier. Ces totaux sont effacés au bout de 30&nbsp;jours.
+      </p>
 
       <h2 class="mb-2 mt-8 font-display text-[1.15rem] font-semibold tracking-tight text-ink">6. Destinataires et transferts</h2>
       <p class="mt-3">

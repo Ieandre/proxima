@@ -20,6 +20,7 @@ Les personnes situées dans une même zone géographique (rayon de 75 km autour 
 - [Tests](#tests)
 - [Sécurité & chiffrement](#sécurité--chiffrement)
 - [Modération & conformité (DSA / RGPD)](#modération--conformité-dsa--rgpd)
+- [Audience — mesure sans pistage](#audience--mesure-sans-pistage)
 - [Limites connues & hors-scope v1](#limites-connues--hors-scope-v1)
 - [Licence](#licence)
 - [Sécurité](#sécurité)
@@ -35,7 +36,7 @@ Principes directeurs :
 - **Zéro compte, zéro PII** — pas d'email, pas de téléphone, pas de mot de passe de compte. L'identité (pseudo, âge, ville) n'existe que pendant la session navigateur.
 - **Éphémère par construction** — tout vit en mémoire / Redis avec expiration automatique (TTL). La fermeture de l'onglet détruit la session : identité, MP, appartenance aux salons.
 - **Chiffrement de bout en bout** — les messages privés **et tous les salons, sans exception** transitent par le serveur sous forme d'enveloppes **opaques** ; le serveur ne peut pas les lire.
-- **Pas de pistage** — aucun tracker tiers, aucune analytics externe, aucune adresse IP journalisée en clair.
+- **Pas de pistage** — aucun tracker tiers, aucune analytics externe, aucune adresse IP journalisée en clair. La fréquentation est mesurée **sur le serveur** : ni script, ni cookie, ni identifiant de visiteur (voir [Audience](#audience--mesure-sans-pistage)).
 
 > Le fonctionnement interne est documenté de bout en bout dans [`DOCUMENTATION-TECHNIQUE.md`](./DOCUMENTATION-TECHNIQUE.md).
 
@@ -153,6 +154,7 @@ chat/
 │   ├── protocol.js             # Primitives de fil partagées (clamp, ack, genId)
 │   ├── security.js             # Hash IP salé rotatif, rate limiting, en-têtes (CSP/HSTS)
 │   ├── metrics.js              # Instantané agrégé pour la console (zéro PII)
+│   ├── audience.js             # Collecte d'audience : middleware Express + échantillonneur
 │   ├── admin.js                # Namespace /admin (console opérateur)
 │   ├── room-actions.js         # Actions partagées par les deux transports (lobby, transfert/suppression)
 │   │
@@ -166,7 +168,8 @@ chat/
 │   │   ├── cities.js           # Géocodage hors-ligne des communes + autocomplétion (nom ou code postal)
 │   │   ├── moderation.js       # Signalements, exclusions, incidents (DSA/RGPD)
 │   │   ├── invites.js          # Invitations à une conversation privée (TTL)
-│   │   └── permanent-rooms.js  # Amorçage des salons permanents au boot
+│   │   ├── permanent-rooms.js  # Amorçage des salons permanents au boot
+│   │   └── analytics.js        # Compteurs d'audience et d'usage, journaliers et à TTL
 │   │
 │   ├── handlers/               # Namespace public, une famille d'événements par fichier
 │   │   ├── index.js            # registerHandlers : contexte de connexion + branchement + disconnect
@@ -253,6 +256,11 @@ Le serveur charge `.env` via `node --env-file=.env` (scripts `start` / `dev`). T
 | `HSTS` | `0` | `1` pour activer l'en-tête HSTS (uniquement derrière TLS). Jamais émis sur l'onion. |
 | `ONION_HOST` | *(vide)* | Adresse du service onion Tor. Vide ⇒ aucune annonce. **En prod : dans l'unité systemd**, pas dans `.env`. |
 | `ONION_RL_GLOBAL_MAX` | `RL_MAX × 50` | Plafond global de l'anti-spam pour le trafic onion. |
+| `ANALYTICS` | `1` | `0` coupe entièrement la mesure d'audience (les lectures rendent des zéros). |
+| `ANALYTICS_RETENTION_DAYS` | `30` | Durée de conservation des compteurs d'audience, en jours. |
+| `ANALYTICS_SAMPLE_MS` | `300000` | Pas de relevé de l'affluence. Fixe aussi le nombre de créneaux par jour. |
+| `ANALYTICS_TZ` | `Europe/Paris` | Fuseau de découpe des journées du tableau de bord. |
+| `ANALYTICS_MAX_REFERRERS` | `200` | Plafond de domaines référents distincts par jour (au-delà : seau `(autres)`). |
 
 > Générer un `OPERATOR_SECRET` :
 > ```bash
@@ -347,6 +355,29 @@ Un socle minimal de gouvernance, sans renoncer au *privacy by design* :
 > ℹ️ La réserve « validation juridique préalable à toute mise en production » qui portait sur les salons privés chiffrés à mot de passe a été **levée le 2026-08-03**. Le chiffrement a ensuite été **étendu à tous les salons** le 2026-08-04 — d'abord les publics (région et permanents inclus), puis les privés sur invitation.
 >
 > Ce que cela change, dit franchement : il n'y a **plus aucune détection automatique** de contenu, nulle part — la modération est intégralement pilotée par les signalements (art. 16), et le retrait reste ciblé et *best-effort*. Ce que le chiffrement protège : le contenu est hors de portée de **l'hébergeur**. Ce qu'il ne protège pas : **quiconque franchit la porte d'un salon en reçoit la clé**, ce qui est aussi la raison pour laquelle tout signaleur peut fournir le clair qu'il a lu.
+
+---
+
+## Audience — mesure sans pistage
+
+Savoir si le site est visité ne devrait pas coûter la vie privée de ceux qui le visitent. La mesure est donc faite **par le serveur lui-même**, dans la console opérateur : **aucun script d'analytics**, aucun cookie, aucun identifiant de visiteur, aucun appel vers un tiers. La page ne charge rien de plus qu'avant.
+
+Ce qui est compté :
+
+| Mesure | Ce que ça dit |
+|---|---|
+| **Chargements de page** | Par quelle page on entre sur le site — les 78 routes déclarées, et elles seules. |
+| **Visites** | Combien d'adresses distinctes sont passées. Voir la nuance ci-dessous. |
+| **Sources** | Le **domaine** d'origine des arrivées (moteur, site référent) — jamais le chemin ni la requête. |
+| **Messages** | Combien d'enveloppes le serveur a relayées. Il les compte, il ne les ouvre pas. |
+| **Affluence** | Les sessions présentes, relevées toutes les 5 minutes, sur les dernières 48 h. |
+| **404** | Les requêtes tombées à côté : un lien externe cassé se voit là. |
+
+Trois précisions qui comptent plus que les chiffres :
+
+- **« Visites », pas « visiteurs uniques »**, et le mot est choisi. Le dénombrement passe par un **HyperLogLog** alimenté par le hash d'IP à **sel rotatif** déjà utilisé par l'anti-spam : Redis n'en garde qu'une esquisse probabiliste, dont les membres ne peuvent pas être retrouvés. Le sel tournant toutes les 5 minutes, quelqu'un qui reste une heure est compté plusieurs fois. Les outils du marché obtiennent le vrai unique avec un **sel quotidien** — au prix d'une corrélation d'adresse étendue de 5 minutes à 24 heures. Le chiffre exact ne valait pas ce prix.
+- **Les robots d'indexation sont écartés.** Sur un site de 78 pages indexables, les compter rendrait la courbe illisible au moment précis où elle devient utile.
+- **Rien ne s'accumule** : chaque compteur porte un TTL de 30 jours (`ANALYTICS_RETENTION_DAYS`). Comme le reste, les statistiques vieillissent et disparaissent seules. `ANALYTICS=0` coupe entièrement la collecte.
 
 ---
 

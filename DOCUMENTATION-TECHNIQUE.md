@@ -311,10 +311,62 @@ Namespace Socket.IO **séparé**, authentifié par jeton unique (`config.operato
 **inerte si non configuré**.
 - `tokensMatch(provided, expected)` — comparaison **temps constant** (`timingSafeEqual` sur SHA-256) ; secret vide ⇒ toujours faux.
 - `authMiddleware` — vérifie `socket.handshake.auth.token`, rejette avec `Error('unauthorized')`.
-- À la connexion : join `operators`, émet `admin:snapshot { reports }`, `admin:metrics` et `admin:rooms`.
+- À la connexion : join `operators`, émet `admin:snapshot { reports }`, `admin:metrics`, `admin:rooms` et `admin:analytics` (audience sur 7 jours).
 - Actions : `admin:retract`, `admin:kick`, `admin:close`, `admin:ban`, `admin:freeze`/`admin:unfreeze` (+ incident), `admin:resolve`, la gestion des salons permanents (`admin:room:create`/`rename`/`remove`) et la remise à zéro (`admin:reset`). L'opérateur ne voit que du **contenu signalé + pseudo + horodatage** — **jamais d'IP**.
 - **Salons** : `admin:rooms` est diffusé au même tick que les métriques mais **séparément**, parce qu'il nomme des salons — ce que `metrics.js` s'interdit. Il s'appuie sur `rooms.listAll()`, qui balaie les clés au lieu de lire un index : les privés sur invitation ne sont dans aucun index, et les salons de région sont hors annuaire. La liste donne un **nombre** de présents ; les pseudos et identifiants de session ne s'obtiennent que salon par salon (`admin:room:members`), sur le seul salon que l'opérateur déplie.
 - **Remise à zéro** (`admin:reset`) : trois gestes dans cet ordre — `purge.purgeChatState()`, puis `seedAtBoot()` pour relever les permanents (un permanent n'est recréé qu'au boot ; un salon de région renaît, lui, au premier arrivant), puis `io.disconnectSockets(true)` **en dernier**, sur le namespace public seulement. Sans cette coupure, chaque client resterait un fantôme (`sessions.touch` échoue en silence sur un hash disparu) ; posée en dernier, elle évite qu'une session recréée par une réidentification immédiate soit emportée par l'effacement. Refusée tant que `security.isSaltFrozen()` (préservation en cours), et conditionnée à la phrase `RESET_PHRASE`, revérifiée côté serveur.
+
+### `domain/analytics.js` + `audience.js` — audience et usage
+Deux modules pour une seule fonction, séparés sur la ligne habituelle : `domain/analytics.js`
+est **pur** (des compteurs Redis, aucune notion de requête HTTP), `audience.js` est
+**Express-aware** (middleware, en-têtes, échantillonneur) — la même frontière que
+`security.js` vis-à-vis de `domain/`.
+
+Ils existent parce que la réponse ordinaire — poser une balise d'analytics — est fermée
+ici : le site promet publiquement qu'il ne charge **aucun script tiers**. Tout se mesure
+donc côté serveur, sans une ligne de JavaScript ajoutée à la page, sans cookie, sans
+identifiant de visiteur.
+
+Quatre garde-fous, dont aucun n'est décoratif :
+
+1. **Aucun chemin ne vient de l'utilisateur.** `audience.declaredPath()` résout la requête
+   dans les tables de `pages.js` / `city-pages.js` ; ce qui n'y figure pas n'est pas compté.
+   C'est ce qui borne la cardinalité du hash `stats:pv:*` — une URL forgée le ferait sinon
+   grossir à volonté, et injecterait du texte étranger dans la console opérateur.
+2. **Le comptage des visites ne retient personne.** `PFADD` sur un HyperLogLog : une
+   esquisse probabiliste dont les membres **ne peuvent pas être ressortis**. Ce qu'on lui
+   donne est le hash d'IP à **sel rotatif** de `security.hashIp` (RG-08), qui change toutes
+   les 5 minutes — d'où le nom retenu, **« visites »** et non « visiteurs uniques » : une
+   session d'une heure compte plusieurs fois. Le **sel quotidien** des outils du marché
+   donnerait le vrai unique en portant la corrélation d'adresse de 5 min à 24 h ; c'est un
+   arbitrage RG-08 laissé au porteur du projet.
+3. **Rien ne s'accumule.** Chaque clé porte le jour dans son nom et un TTL
+   (`analytics.retentionDays`). L'`EXPIRE` est reposé à chaque écriture : la fenêtre glisse
+   avec la dernière écriture du jour, si bien qu'une journée n'expire jamais pendant qu'on
+   l'alimente encore.
+4. **Les sources sont bornées.** `stats:ref:*` est alimenté par un tiers (`Referer`), donc
+   plafonné à `maxReferrerHosts` domaines distincts par jour — au-delà, tout va dans
+   `(autres)`. Le plafond ne se vérifie **qu'avant d'ouvrir un champ neuf** : sans cette
+   nuance, les domaines déjà comptés cesseraient d'avancer et le classement se figerait sur
+   la matinée.
+
+Deux détails d'implémentation qui ont leur raison :
+
+- **Les robots d'indexation sont écartés** (`audience.BOT_RE`, sur `User-Agent`, jamais
+  conservé). Sur 78 pages indexables, les compter rendrait la courbe illisible au moment
+  précis où elle sert — après une mise en ligne, quand l'exploration s'intensifie.
+- **`sampleTraffic` écrit une JAUGE** (`hSet`, pas `hIncrBy`). Plusieurs instances
+  échantillonnent le même Redis et y lisent le même état global : écrire la valeur observée
+  les rend idempotentes, alors qu'un incrément multiplierait l'affluence par leur nombre.
+
+`summary({ days })` est en **lecture seule et à la demande** — jamais sur le tick de 5 s du
+tableau de bord : elle balaie toute la fenêtre pour des chiffres qui ne bougent qu'à
+l'échelle de la journée. Elle rend le détail fin (créneau par créneau) sur les **deux
+derniers jours** seulement, et se contente du pic et des totaux au-delà.
+
+Enfin, `stats:*` **survit à `admin:reset`** (cf. `domain/purge.js`) : ce n'est pas de la
+conversation mais l'historique du site, et la remise à zéro sert à repartir d'une plateforme
+vide, pas à effacer le mois écoulé.
 
 ### `handlers/` — namespace Socket.IO public (cœur métier)
 Une **famille d'événements par fichier**. `handlers/index.js` ne porte aucune règle
@@ -389,6 +441,12 @@ Tout est volatil (TTL) sauf les salons permanents. Redis tourne sans persistance
 | `mod:dedup:<msgId>` | set | Signaleurs d'un message (anti-doublon) | `reportSec` | `moderation.js` |
 | `mod:bans` | set | Exclusions volatiles | `banSec` (90 s) | `moderation.js` |
 | `mod:incident:<id>` | hash | Incident de réquisition prospective | `incidentSec` (72 h) | `moderation.js` |
+| `stats:pv:<jour>` | hash | Chargements par **route déclarée** (`/`, `/tchat/nancy`…) | `retentionDays` (30 j) | `analytics.js` |
+| `stats:visits:<jour>` | hyperloglog | Esquisse des hashs d'IP du jour — **non énumérable** | idem | `analytics.js` |
+| `stats:ref:<jour>` | hash | Domaine référent → arrivées ; plafonné, débord en `(autres)` | idem | `analytics.js` |
+| `stats:msg:<jour>` | string | Enveloppes relayées (jamais leur contenu) | idem | `analytics.js` |
+| `stats:404:<jour>` | string | Requêtes tombées sur une vraie 404 | idem | `analytics.js` |
+| `stats:ts:<jour>` | hash | Créneau du jour → `sessions,salons,membres` (jauge) | idem | `analytics.js` |
 
 **Ce qui n'est jamais dans Redis** : le clair d'un MP ou d'un salon chiffré, un mot de
 passe de salon en clair, une clé de chiffrement, une IP en clair. Le `pass` d'un salon
@@ -443,6 +501,8 @@ privé sur invitation n'y est que **haché** (SHA-256 sel+mot de passe).
 | `admin:metrics` | serveur → opérateur | Métriques agrégées (compteurs seuls, aucun nom) |
 | `admin:rooms` | serveur → opérateur | **Tous** les salons vivants (`rooms.listAll`), nombre de présents seul |
 | `admin:rooms:refresh` | opérateur → serveur | Même liste, à la demande |
+| `admin:analytics` | serveur → opérateur | Synthèse d'audience, **une seule fois** à la connexion (7 j) |
+| `admin:analytics` | opérateur → serveur | Même synthèse sur `{ days }` — jamais sur le tick, cf. `domain/analytics.js` |
 | `admin:room:members` | opérateur → serveur | Composition d'**un** salon (pseudos + ids, pour `admin:kick`) |
 | `admin:reset` | opérateur → serveur | Remise à zéro de l'état de conversation (globale) |
 | `admin:retract` | opérateur → serveur | `room:retract` (retrait d'un message) |
@@ -678,6 +738,7 @@ laisser croire à davantage.
 - **Redis sans persistance disque** (`save ''`, `appendonly no`) : le contenu utilisateur ne touche jamais le disque.
 - **Enveloppes opaques** de bout en bout : le serveur relaie sans jamais déchiffrer.
 - **Namespace `/admin` isolé** et inerte sans `OPERATOR_SECRET`.
+- **Mesure d'audience sans pistage** (`domain/analytics.js`) : comptée par le serveur, sans script ajouté à la page, sans cookie, sans identifiant de visiteur — ce qui laisse vraies les promesses publiques de `Confidentialite.vue` et `ChatAnonyme.vue`. Le dénombrement des visites passe par un **HyperLogLog** alimenté par le hash d'IP à sel rotatif : une esquisse non énumérable, sans nouvelle corrélation d'adresse au-delà des 5 minutes déjà en vigueur. Seules les **routes déclarées** sont comptées, et tout expire (30 j).
 
 ---
 
@@ -738,6 +799,11 @@ Render). Modèle : [`.env.example`](./.env.example).
 | `IP_SALT_ROTATE_MS` | `300000` | Rotation du sel de hachage IP (5 min). |
 | `RL_WINDOW_SEC` / `RL_MAX` | `10` / `30` | Fenêtre / plafond anti-spam (messages / hash IP). |
 | `SALT_FREEZE_MAX_SEC` | `259200` | Plafond de gel du sel IP (72 h). |
+| `ANALYTICS` | `1` | `0` coupe entièrement la collecte d'audience (les lectures rendent des zéros). |
+| `ANALYTICS_RETENTION_DAYS` | `30` | Rétention des compteurs `stats:*`, en jours. Borne aussi la fenêtre de `summary`. |
+| `ANALYTICS_SAMPLE_MS` | `300000` | Pas de relevé de l'affluence ; fixe le nombre de créneaux par jour (288 à 5 min). |
+| `ANALYTICS_TZ` | `Europe/Paris` | Fuseau de découpe des journées (pas UTC : une journée qui commence à 2 h ne se lit pas). |
+| `ANALYTICS_MAX_REFERRERS` | `200` | Plafond de domaines référents distincts par jour ; au-delà, seau `(autres)`. |
 | `HSTS` | `0` | `1` pour activer HSTS (uniquement derrière TLS). Jamais émis sur l'onion. |
 | `ONION_HOST` | *(vide)* | Adresse du service onion. Vide ⇒ aucune annonce (`Onion-Location` ni mention UI). **En prod : dans l'unité systemd, pas dans `.env`** — cf. § 13. |
 | `ONION_RL_GLOBAL_MAX` | `RL_MAX × 50` | Plafond global du trafic onion par fenêtre. |
@@ -762,7 +828,7 @@ npm run test:watch  # mode watch
 ```
 
 ### Pattern d'injection
-- [`test/helpers/fake-redis.js`](./test/helpers/fake-redis.js) — `FakeRedis` en mémoire : strings, hash (`hSetNX`/`hIncrBy` atomiques), zset, set, GEO (`geoSearch` FROMMEMBER+BYRADIUS via Haversine), `scan` (tout en un lot, curseur de retour 0 ; seul le joker `*` est interprété). `__reset()` entre les tests. Limites assumées : `expire` est un no-op ; l'index GEO partage la clé d'un zset.
+- [`test/helpers/fake-redis.js`](./test/helpers/fake-redis.js) — `FakeRedis` en mémoire : strings, hash (`hSetNX`/`hIncrBy` atomiques), zset, set, GEO (`geoSearch` FROMMEMBER+BYRADIUS via Haversine), HyperLogLog (`pfAdd`/`pfCount`), `scan` (tout en un lot, curseur de retour 0 ; seul le joker `*` est interprété). `__reset()` entre les tests. Limites assumées : `expire` est un no-op ; l'index GEO partage la clé d'un zset ; le HyperLogLog est un `Set` exact — le test veut un dénombrement déterministe, pas l'erreur de 0,81 % de l'algorithme.
 - [`test/helpers/inject-redis.js`](./test/helpers/inject-redis.js) — place le fake dans `require.cache` **à la place de `server/infra/redis.js`, avant** tout chargement de module serveur. Comme chaque module du domaine fait `require('../infra/redis')`, toute la chaîne reçoit le fake.
 
 Usage type (premier require du fichier de test) :
@@ -774,7 +840,7 @@ beforeEach(() => fake.__reset());
 Certains tests posent des variables d'env **avant** le require (ex. `admin.test.js`
 → `OPERATOR_SECRET`), car `config.js` lit l'environnement au chargement.
 
-### Couverture (12 fichiers)
+### Couverture (13 fichiers)
 
 | Fichier | Module | Points saillants |
 |---------|--------|------------------|
@@ -789,6 +855,7 @@ Certains tests posent des variables d'env **avant** le require (ex. `admin.test.
 | `config.test.js` | `config.js` | Garde-fou défauts (port, rayon RG-03, âge, TTL) |
 | `room-actions.test.js` | `room-actions.js` | `handleLeave`, `broadcastMembers`, `pushLobby` (io factice) |
 | `permanent-rooms.test.js` | `permanent-rooms.js` | Seed via JSON temporaire, idempotence |
+| `analytics.test.js` | `domain/analytics.js` + `audience.js` | Découpe des journées dans le fuseau d'exploitation (et non UTC), **visite ≠ chargement**, plafond des référents qui laisse avancer les domaines déjà connus, jauge d'affluence idempotente, et le filtre de collecte : seules les routes déclarées, robots écartés, navigation interne exclue des sources |
 
 Côté frontend, la vérification de types passe par le build : `cd frontend && npm run build` (`tsc && vite build`).
 

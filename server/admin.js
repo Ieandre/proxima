@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const config = require('./config');
 const { clamp, ack } = require('./protocol');
+const analytics = require('./domain/analytics');
 const moderation = require('./domain/moderation');
 const metrics = require('./metrics');
 const purge = require('./domain/purge');
@@ -26,6 +27,9 @@ const { SLUG_RE, seedAtBoot } = require('./domain/permanent-rooms');
  * le geste est irréversible et global, il doit coûter une intention explicite.
  */
 const RESET_PHRASE = 'REINITIALISER';
+
+/** Fenêtre d'audience ouverte par défaut : une semaine se lit d'un coup d'œil. */
+const DEFAULT_ANALYTICS_DAYS = 7;
 
 /**
  * Comparaison à TEMPS CONSTANT de deux secrets. Le hachage SHA-256 préalable
@@ -113,6 +117,27 @@ function registerAdminNamespace(io) {
     } catch (err) {
       console.error('[admin:rooms]', err.message);
     }
+    try {
+      socket.emit('admin:analytics', await analytics.summary({ days: DEFAULT_ANALYTICS_DAYS }));
+    } catch (err) {
+      console.error('[admin:analytics]', err.message);
+    }
+
+    /**
+     * Audience et usage sur une fenêtre de jours. Délibérément ABSENT du tick de
+     * rafraîchissement : la synthèse balaye toute la fenêtre dans Redis, alors que ce
+     * qu'elle rend ne bouge qu'à l'échelle de la journée. La pousser toutes les cinq
+     * secondes coûterait un balayage permanent pour un chiffre identique — l'opérateur
+     * la redemande quand il change de fenêtre, et c'est assez.
+     */
+    socket.on('admin:analytics', async ({ days } = {}, cb) => {
+      try {
+        ack(cb, { ok: true, analytics: await analytics.summary({ days: Number(days) || DEFAULT_ANALYTICS_DAYS }) });
+      } catch (err) {
+        console.error('[admin:analytics]', err.message);
+        ack(cb, { error: 'Statistiques indisponibles.' });
+      }
+    });
 
     // Retrait ciblé d'un message de salon public (best-effort chez les clients connectés).
     socket.on('admin:retract', ({ roomId, messageId } = {}, cb) => {

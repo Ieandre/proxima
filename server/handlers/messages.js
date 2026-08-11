@@ -3,6 +3,7 @@
 const { clamp, genId } = require('../protocol');
 const sessions = require('../domain/sessions');
 const rooms = require('../domain/rooms');
+const analytics = require('../domain/analytics');
 
 /**
  * MESSAGES DE SALON — le seul chemin par lequel du contenu de groupe transite.
@@ -101,6 +102,18 @@ function register({ io, socket, sid, limited }) {
      * n'a été lu par personne, il ne doit donc pas donner droit à un « est sorti·e ».
      */
     socket.data.spoke.add(roomId);
+
+    /**
+     * Un trait au compteur du jour (`domain/analytics.js`). Le serveur dénombre ce qui
+     * passe par lui sans rien en savoir : ni le contenu — l'enveloppe est opaque —, ni
+     * le salon, ni l'auteur. Le compteur ne répond qu'à « la plateforme a-t-elle
+     * servi ? ». Détaché de la diffusion : une statistique ne retarde pas un message.
+     *
+     * Échec avalé en silence, et non journalisé : un Redis en peine se voit déjà
+     * partout ailleurs (sessions, présence, salons). Une ligne de plus par message
+     * pendant l'incident noierait les traces qui, elles, servent à le diagnostiquer.
+     */
+    analytics.recordMessage().catch(() => {});
 
     // Aucune trace de la RÉPONSE CITÉE ici : la référence est scellée dans l'enveloppe
     // (cf. `frontend/src/lib/body.ts`), le serveur ignore donc jusqu'au graphe des
