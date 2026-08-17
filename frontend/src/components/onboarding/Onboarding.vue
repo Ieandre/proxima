@@ -520,15 +520,26 @@ const defaultItems = [
     <!-- La FAQ de la coquille statique, réaffichée par l'application : le FAQPage
         du JSON-LD n'est valable que si les questions restent visibles sur la page
         rendue, et la coquille disparaît au montage (cf. lib/faq.ts). Absente des
-        arrivées par invitation, comme la vitrine qu'elle prolonge. -->
-    <section v-if="!invited" class="relative z-10 mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8">
-      <h2 class="font-display text-xl font-semibold tracking-tight">Questions fréquentes</h2>
-      <dl class="mt-6 grid gap-x-12 gap-y-6 md:grid-cols-2">
-        <div v-for="item in FAQ" :key="item.q">
-          <dt class="font-medium text-ink">{{ item.q }}</dt>
-          <dd class="mt-1.5 text-sm leading-relaxed text-muted">{{ item.a }}</dd>
-        </div>
-      </dl>
+        arrivées par invitation, comme la vitrine qu'elle prolonge. Repliée par
+        défaut : le contenu est dans le DOM (ce que demande Google), sans disputer
+        l'écran au geste d'entrer. -->
+    <section v-if="!invited" class="relative z-10 mx-auto w-full max-w-2xl px-5 pb-16 sm:px-8">
+      <h2 class="text-center text-[13px] font-semibold text-faint">Questions fréquentes</h2>
+      <div class="mt-4">
+        <details v-for="item in FAQ" :key="item.q" class="group border-b border-line/60">
+          <summary
+            class="flex cursor-pointer list-none items-baseline justify-between gap-4 py-3 text-[14px] font-medium text-ink transition-colors hover:text-blue [&::-webkit-details-marker]:hidden"
+          >
+            {{ item.q }}
+            <span
+              aria-hidden="true"
+              class="flex-none text-[15px] font-normal text-faint transition-transform duration-200 group-open:rotate-45 motion-reduce:transition-none"
+              >+</span
+            >
+          </summary>
+          <p class="pb-4 pr-8 text-[13.5px] leading-relaxed text-muted">{{ item.a }}</p>
+        </details>
+      </div>
     </section>
 
     <SiteFooter />
