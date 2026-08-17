@@ -3,6 +3,7 @@ import { computed, onMounted, watch } from 'vue';
 import type { SeoCity } from '../../lib/cities-seo';
 import { closePage, navigate } from '../../lib/router';
 import { useStore } from '../../store/useStore';
+import SiteFooter from '../layout/SiteFooter.vue';
 import TopBar from '../layout/TopBar.vue';
 import { Icon, Logo } from '../ui';
 import Example from './Example.vue';
@@ -64,14 +65,14 @@ function enter() {
 </script>
 
 <template>
-  <div class="min-h-full pb-24">
+  <div class="min-h-full">
     <TopBar column="text" :onHome="closePage">
       <button class="btn btn-ghost px-3" @click="closePage">
         <Icon name="back" :size="16" /> Retour
       </button>
     </TopBar>
 
-    <article class="mx-auto max-w-3xl px-5">
+    <article class="mx-auto max-w-3xl px-5 pb-24">
       <!-- Hero -->
       <div class="border-b border-line py-12">
         <p class="mb-3 text-sm font-semibold text-blue">
@@ -160,5 +161,7 @@ function enter() {
         </p>
       </div>
     </article>
+
+    <SiteFooter />
   </div>
 </template>

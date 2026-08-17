@@ -15,6 +15,7 @@ const { renderPage, sitemap } = require('../scripts/prerender-routes');
 const ROOT = path.join(__dirname, '..');
 const INDEX_HTML = path.join(ROOT, 'frontend', 'index.html');
 const ROUTER_TS = path.join(ROOT, 'frontend', 'src', 'lib', 'router.ts');
+const HEAD_TS = path.join(ROOT, 'frontend', 'src', 'lib', 'head.ts');
 
 /* ==========================================================================
  * Cohérence de la déclaration des pages
@@ -95,6 +96,20 @@ test('pages : le routeur client déclare les mêmes chemins que le serveur', () 
     serverPaths.slice().sort(),
     'lib/router.ts désynchronisé de server/pages.js',
   );
+});
+
+// Après une navigation interne (pushState, sans rechargement), c'est lib/head.ts
+// qui rejoue titre, description et canonique : ses méta doivent être celles que
+// le pré-rendu met dans le document, mot pour mot.
+test('pages : les méta du client (lib/head.ts) suivent server/pages.js', () => {
+  const source = fs.readFileSync(HEAD_TS, 'utf8');
+  const block = source.match(/export const PAGE_META = ([\s\S]*?) as const;/);
+  assert.ok(block, 'PAGE_META introuvable dans lib/head.ts');
+
+  const expected = Object.fromEntries(
+    PAGES.map((p) => [p.path, { title: p.title, description: p.description }]),
+  );
+  assert.deepEqual(JSON.parse(block[1]), expected, 'lib/head.ts désynchronisé de server/pages.js');
 });
 
 // Les liens de la coquille statique sont les seuls qu'un explorateur puisse

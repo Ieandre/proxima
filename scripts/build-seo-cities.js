@@ -48,6 +48,10 @@ export type SeoCity = {
   /** Identifiant stable de la commune (\`FR-54395\`), tel que l'attend \`identify\`. */
   id: string;
   name: string;
+  /** Titre et description de la page, tels que pré-rendus — repris par lib/head.ts
+      quand la navigation client arrive sur la page sans rechargement. */
+  title: string;
+  description: string;
   /** Département, province ou canton — absent pour Monaco et le Luxembourg. */
   subdivision: string | null;
   country: string;
@@ -76,6 +80,8 @@ function main() {
       slug: city.slug,
       id: city.id,
       name: city.name,
+      title: page.title,
+      description: page.description,
       subdivision: city.subdivision,
       country: city.country,
       population: city.population,

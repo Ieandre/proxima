@@ -122,8 +122,9 @@ test('SEO : X-Robots-Tag effectivement émis pour les chemins non publics', () =
   assert.equal(headersFor('/')['X-Robots-Tag'], undefined);
 });
 
-// Hôtes tiers légitimement cités dans les métadonnées (vocabulaires, pas des URLs du service).
-const EXTERNAL_HOSTS = new Set(['schema.org', 'www.sitemaps.org', 'www.w3.org', 'ogp.me']);
+// Hôtes tiers légitimement cités dans les métadonnées : vocabulaires, plus le
+// dépôt du code (`sameAs` de l'Organization) — pas des URLs du service.
+const EXTERNAL_HOSTS = new Set(['schema.org', 'www.sitemaps.org', 'www.w3.org', 'ogp.me', 'github.com']);
 
 // Garde-fou de bascule de domaine : index.html, robots.txt, sitemap.xml et la
 // déclaration des pages doivent désigner une seule et même origine publique.

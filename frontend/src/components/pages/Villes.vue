@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { SEO_CITIES } from '../../lib/cities-seo';
 import { closePage } from '../../lib/router';
+import SiteFooter from '../layout/SiteFooter.vue';
 import TopBar from '../layout/TopBar.vue';
 import { Icon, Logo } from '../ui';
 import Mono from './Mono.vue';
@@ -30,14 +31,14 @@ const groups = computed(() =>
 </script>
 
 <template>
-  <div class="min-h-full pb-24">
+  <div class="min-h-full">
     <TopBar column="text" :onHome="closePage">
       <button class="btn btn-ghost px-3" @click="closePage">
         <Icon name="back" :size="16" /> Retour
       </button>
     </TopBar>
 
-    <article class="mx-auto max-w-3xl px-5">
+    <article class="mx-auto max-w-3xl px-5 pb-24">
       <div class="border-b border-line py-12">
         <p class="mb-3 text-sm font-semibold text-blue">Tchat par ville</p>
         <h1
@@ -89,5 +90,7 @@ const groups = computed(() =>
         </button>
       </div>
     </article>
+
+    <SiteFooter />
   </div>
 </template>

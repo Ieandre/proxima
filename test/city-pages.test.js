@@ -170,6 +170,8 @@ test('villes : le fichier généré du client est à jour', () => {
       slug: city.slug,
       id: city.id,
       name: city.name,
+      title: page.title,
+      description: page.description,
       subdivision: city.subdivision,
       country: city.country,
       population: city.population,

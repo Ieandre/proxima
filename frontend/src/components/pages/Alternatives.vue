@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { closePage } from '../../lib/router';
+import SiteFooter from '../layout/SiteFooter.vue';
 import TopBar from '../layout/TopBar.vue';
 import { Icon, Logo } from '../ui';
 import Limit from './Limit.vue';
@@ -54,14 +55,14 @@ const CLOSURES = [
 </script>
 
 <template>
-  <div class="min-h-full pb-24">
+  <div class="min-h-full">
     <TopBar column="text" :onHome="closePage">
       <button class="btn btn-ghost px-3" @click="closePage">
         <Icon name="back" :size="16" /> Retour
       </button>
     </TopBar>
 
-    <article class="mx-auto max-w-3xl px-5">
+    <article class="mx-auto max-w-3xl px-5 pb-24">
       <div class="border-b border-line py-12">
         <p class="mb-3 text-sm font-semibold text-blue">Alternatives</p>
         <h1
@@ -158,5 +159,7 @@ const CLOSURES = [
         </button>
       </div>
     </article>
+
+    <SiteFooter />
   </div>
 </template>

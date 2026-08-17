@@ -281,7 +281,7 @@ function securityHeaders(req, res, next) {
       // une seule ligne, sans indentation — sinon le hash dépendrait des fins de ligne
       // (CRLF en dev Windows contre LF sur la VM). `test/csp-jsonld.test.js` verrouille
       // la correspondance : il échoue si l'un des deux change sans l'autre.
-      "script-src 'self' 'wasm-unsafe-eval' 'sha256-rx8ZKQSRLzHjpK1Cydf/f5c7MzNCDWn0LnBWfIWnA2A='",
+      "script-src 'self' 'wasm-unsafe-eval' 'sha256-bn1OB6a5kryvART3H99SKDfPU9mznp7eIPRPJm6UNds='",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",

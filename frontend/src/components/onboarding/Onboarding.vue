@@ -4,6 +4,7 @@ import { identify, peekInvite } from '../../lib/socket';
 import { useStore } from '../../store/useStore';
 import { randomPseudo } from '../../lib/pseudo';
 import type { CitySuggestion } from '../../lib/types';
+import { FAQ } from '../../lib/faq';
 import SiteFooter from '../layout/SiteFooter.vue';
 import TopBar from '../layout/TopBar.vue';
 import { Icon, Logo } from '../ui';
@@ -515,6 +516,20 @@ const defaultItems = [
         </form>
       </section>
     </div>
+
+    <!-- La FAQ de la coquille statique, réaffichée par l'application : le FAQPage
+        du JSON-LD n'est valable que si les questions restent visibles sur la page
+        rendue, et la coquille disparaît au montage (cf. lib/faq.ts). Absente des
+        arrivées par invitation, comme la vitrine qu'elle prolonge. -->
+    <section v-if="!invited" class="relative z-10 mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8">
+      <h2 class="font-display text-xl font-semibold tracking-tight">Questions fréquentes</h2>
+      <dl class="mt-6 grid gap-x-12 gap-y-6 md:grid-cols-2">
+        <div v-for="item in FAQ" :key="item.q">
+          <dt class="font-medium text-ink">{{ item.q }}</dt>
+          <dd class="mt-1.5 text-sm leading-relaxed text-muted">{{ item.a }}</dd>
+        </div>
+      </dl>
+    </section>
 
     <SiteFooter />
   </div>

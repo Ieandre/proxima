@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useStore } from './store/useStore';
 import { connect } from './lib/socket';
@@ -17,6 +17,7 @@ import { isLegalPath } from './components/pages/legal-tabs';
 import { cityFromPath } from './lib/cities-seo';
 import Splash from './components/Splash.vue';
 import { installLinkDelegate } from './lib/router';
+import { syncHead } from './lib/head';
 import { useRoute } from './composables/route';
 import { armSound } from './lib/sound';
 
@@ -34,6 +35,12 @@ const route = useRoute();
 // Page d'une ville (`/tchat/nancy`) : le slug est validé contre les données
 // générées, une URL inconnue retombe donc sur l'application.
 const city = computed(() => cityFromPath(route.value));
+
+// Titre, description et canonique suivent la navigation interne. `immediate` :
+// en production le document d'entrée porte déjà ces balises (pré-rendues au
+// build) et la passe est un no-op ; en dev, où rien n'est pré-rendu, elle
+// donne à chaque URL son identité.
+watch(route, (path) => syncHead(path), { immediate: true });
 
 onMounted(() => connect());
 

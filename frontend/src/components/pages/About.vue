@@ -6,6 +6,7 @@ import { DISCORD_INVITE, SOURCE_URL } from '../../lib/links';
 import { isOnionOrigin } from '../../lib/onion';
 import { closePage } from '../../lib/router';
 import { useStore } from '../../store/useStore';
+import SiteFooter from '../layout/SiteFooter.vue';
 import TopBar from '../layout/TopBar.vue';
 import { DiscordGlyph, GitHubGlyph, Icon, Logo } from '../ui';
 import { EphemeralSchema, ProximitySchema, KeySchema, CipherFlowSchema, RoomsSchema } from './schemas';
@@ -51,7 +52,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-full pb-24">
+  <div class="min-h-full">
     <!-- Barre -->
     <TopBar column="text" :onHome="closePage">
       <button class="btn btn-ghost px-3" @click="closePage">
@@ -59,7 +60,7 @@ onMounted(() => {
       </button>
     </TopBar>
 
-    <article class="mx-auto max-w-3xl px-5">
+    <article class="mx-auto max-w-3xl px-5 pb-24">
       <!-- Hero -->
       <div class="border-b border-line py-12">
         <p class="mb-3 text-sm font-semibold text-blue">Comment ça marche · sécurité</p>
@@ -432,5 +433,7 @@ onMounted(() => {
         </div>
       </div>
     </article>
+
+    <SiteFooter />
   </div>
 </template>
